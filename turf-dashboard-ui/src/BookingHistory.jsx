@@ -1,13 +1,31 @@
 import { fetchApi } from './apiClient';
 import React, { useState, useEffect } from 'react';
 
-export default function BookingHistory({ apiBase, token, downloadTicketPDF }) {
+export default function BookingHistory({ apiBase, token, downloadTicketPDF, triggerAlert }) {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     fetchBookings();
+
+    // Listen for WebSocket updates on split payments
+    let wsUrl = apiBase.replace("http", "ws") + "/ws";
+    let ws = new WebSocket(wsUrl);
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.event === "split_update") {
+          // A split payment was updated (paid or declined). Refresh!
+          fetchBookings();
+        }
+      } catch (err) {}
+    };
+
+    return () => {
+      if (ws) ws.close();
+    };
   }, []);
 
   const fetchBookings = async () => {
@@ -29,7 +47,44 @@ export default function BookingHistory({ apiBase, token, downloadTicketPDF }) {
 
   const handleDownload = (booking) => {
     if (downloadTicketPDF) {
-      downloadTicketPDF(booking.id, booking.slot, booking.final_amount, booking.is_split);
+      downloadTicketPDF(booking.id, booking.slot, booking.final_amount, booking.is_split, booking.status);
+    }
+  };
+
+  const handleCancelBooking = async (bookingId) => {
+    if (!window.confirm("Are you sure you want to cancel this booking? If this is a split, any friends who already paid will be instantly refunded.")) return;
+    try {
+      const res = await fetchApi(`${apiBase}/user/bookings/${bookingId}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to cancel booking');
+      }
+      triggerAlert("Booking cancelled. Refunds processed.", false);
+      fetchBookings();
+    } catch (err) {
+      triggerAlert(err.message, true);
+    }
+  };
+
+  const handleResendInvite = async (splitId) => {
+    try {
+      const res = await fetchApi(`${apiBase}/splits/${splitId}/resend`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch invite link');
+      
+      const link = `${window.location.origin}/pay-split?token=${data.token}`;
+      await navigator.clipboard.writeText(link);
+      triggerAlert("Invite link copied to clipboard!", false);
+    } catch (err) {
+      triggerAlert(err.message, true);
     }
   };
 
@@ -85,7 +140,7 @@ export default function BookingHistory({ apiBase, token, downloadTicketPDF }) {
                 <div className="absolute top-0 left-0 w-1 h-full bg-slate-200 group-hover:bg-[#10b981] transition-colors"></div>
                 <div className="p-6 pb-5 border-b border-slate-100 flex justify-between items-start">
                   <div>
-                    <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest block mb-1">Booking #{String(booking.id).padStart(4, '0')}</span>
+                    <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest block mb-1">Booking #{booking.reference_id || String(booking.id).padStart(4, '0')}</span>
                     <h3 className="font-black text-slate-900 text-lg tracking-tight leading-tight">{pitchName}</h3>
                   </div>
                   <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-md tracking-wider ${statusColor}`}>
@@ -108,7 +163,65 @@ export default function BookingHistory({ apiBase, token, downloadTicketPDF }) {
                   </div>
                 </div>
 
-                <div className="p-4 bg-white flex justify-end gap-3 border-t border-slate-100">
+                {booking.is_split && booking.splits && booking.splits.length > 0 && (
+                  <div className="bg-slate-50 border-t border-slate-100 p-4">
+                    <div className="flex justify-between items-end mb-3">
+                      <div>
+                        <p className="text-[10px] font-black uppercase text-slate-500 mb-1">Split Progress</p>
+                        <div className="text-sm font-black text-slate-700">
+                          {booking.splits.filter(s => s.status === 'paid').length + 1} / {booking.splits.length + 1} Paid
+                        </div>
+                      </div>
+                      {isPending && (
+                        <div className="text-right">
+                          <p className="text-[9px] font-black uppercase text-slate-500 mb-1">Expires In</p>
+                          <CountdownTimer bookedAt={booking.booked_at} />
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Progress Bar Visual */}
+                    <div className="w-full bg-slate-200 rounded-full h-2 mb-4 overflow-hidden">
+                      <div 
+                        className="bg-emerald-500 h-2 rounded-full transition-all duration-500" 
+                        style={{ width: `${((booking.splits.filter(s => s.status === 'paid').length + 1) / (booking.splits.length + 1)) * 100}%` }}
+                      ></div>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <div className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-slate-200">
+                        <span className="text-xs font-bold text-slate-700">Host (You)</span>
+                        <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-600 px-2 py-0.5 rounded">Paid</span>
+                      </div>
+                      {booking.splits.map((split, i) => (
+                        <div key={split.id} className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-slate-200">
+                          <span className="text-xs font-bold text-slate-700">Friend {i + 1}</span>
+                          <div className="flex items-center gap-2">
+                            {split.status === 'paid' ? (
+                              <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-600 px-2 py-0.5 rounded">Paid</span>
+                            ) : split.status === 'declined' ? (
+                              <span className="text-[10px] font-black uppercase bg-red-100 text-red-600 px-2 py-0.5 rounded">Declined</span>
+                            ) : (
+                              <>
+                                <span className="text-[10px] font-black uppercase bg-yellow-100 text-yellow-600 px-2 py-0.5 rounded">Pending</span>
+                                {isPending && (
+                                  <button 
+                                    onClick={() => handleResendInvite(split.id)}
+                                    className="text-[9px] font-black uppercase tracking-wider bg-slate-900 text-white px-2 py-1 rounded hover:bg-slate-800 transition-colors"
+                                  >
+                                    Copy Link
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="p-4 bg-white flex justify-end gap-3 border-t border-slate-100 rounded-b-2xl">
                   {isConfirmed && (
                     <button 
                       onClick={() => handleDownload(booking)}
@@ -117,12 +230,54 @@ export default function BookingHistory({ apiBase, token, downloadTicketPDF }) {
                       <span>📥</span> Download Ticket
                     </button>
                   )}
+                  {isPending && booking.is_split && (
+                    <button 
+                      onClick={() => handleCancelBooking(booking.id)}
+                      className="text-xs font-black uppercase text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-4 py-2 rounded-lg transition-colors border border-red-100 flex items-center gap-2 cursor-pointer"
+                    >
+                      <span>✖️</span> Cancel & Refund
+                    </button>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// Countdown Timer Component
+function CountdownTimer({ bookedAt }) {
+  const [timeLeft, setTimeLeft] = useState("");
+
+  useEffect(() => {
+    const calculateTimeLeft = () => {
+      const bookedTime = new Date(bookedAt).getTime();
+      const expiryTime = bookedTime + 30 * 60 * 1000; // 30 minutes
+      const now = new Date().getTime();
+      const diff = expiryTime - now;
+
+      if (diff <= 0) {
+        setTimeLeft("00:00");
+        return;
+      }
+
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+      setTimeLeft(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+    };
+
+    calculateTimeLeft();
+    const timer = setInterval(calculateTimeLeft, 1000);
+
+    return () => clearInterval(timer);
+  }, [bookedAt]);
+
+  return (
+    <div className="text-sm font-black text-rose-500 tabular-nums animate-pulse">
+      {timeLeft}
     </div>
   );
 }

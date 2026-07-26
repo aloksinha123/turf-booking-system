@@ -18,10 +18,11 @@ func main() {
 	// Run Database Seeder
 	config.SeedDatabase()
 
-	// Start Background Engines
-	cron.StartReminderCron()
+	// Start Cron Jobs
 	cron.StartSplitExpiryCron()
+	cron.StartReminderCron()
 	cron.StartMatchmakingExpiryCron()
+	cron.StartStandardExpiryCron()
 	go websockets.GlobalHub.Run()
 
 	router := gin.Default()
@@ -29,7 +30,7 @@ func main() {
 	router.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With, Idempotency-Key")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
 
 		if c.Request.Method == "OPTIONS" {
@@ -57,6 +58,7 @@ func main() {
 
 	// Split Payments
 	router.GET("/api/v1/splits/verify/:token", controllers.VerifySplitToken)
+	router.POST("/api/v1/splits/decline/:token", controllers.DeclineSplitInvite)
 
 	// Public Route
 	router.GET("/slots/available", controllers.GetAvailableSlots)
@@ -71,6 +73,9 @@ func main() {
 	{
 		customerRoutes.POST("/slots/book", controllers.CreateBooking)
 		customerRoutes.GET("/user/bookings", controllers.GetUserBookings)
+		customerRoutes.POST("/user/bookings/:id/cancel", controllers.CancelBooking)
+		customerRoutes.POST("/slots/:id/waitlist", controllers.JoinWaitlist)
+		customerRoutes.POST("/splits/:id/resend", controllers.ResendSplitInvite)
 	}
 
 	// Admin Protected Routes
@@ -83,6 +88,8 @@ func main() {
 		adminRoutes.GET("/analytics", controllers.GetAdminAnalytics)
 		adminRoutes.POST("/slots/generate", controllers.GenerateDailySlots)
 		adminRoutes.PUT("/slots/:id/price", controllers.UpdateSlotPrice)
+		adminRoutes.POST("/slots/:id/release", controllers.ForceReleaseSlot)
+		adminRoutes.POST("/slots/:id/extend", controllers.ExtendSlotHold)
 		adminRoutes.POST("/seed_demo", controllers.SeedDemoAnalytics)
 		
 		// Dev/Test: Stress test & reset all slots

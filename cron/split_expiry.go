@@ -7,16 +7,17 @@ import (
 	"turf-booking-system/config"
 	"turf-booking-system/models"
 
+	"os"
+
 	"github.com/stripe/stripe-go/v78"
 	"github.com/stripe/stripe-go/v78/refund"
-	"os"
 )
 
 // StartSplitExpiryCron initializes a background ticker that checks for expired splits
 func StartSplitExpiryCron() {
 	// Run every 5 minutes
 	ticker := time.NewTicker(5 * time.Minute)
-	
+
 	go func() {
 		fmt.Println("[CRON] 🕒 Split Expiry Engine Started (Running every 5 mins)...")
 		for {
@@ -71,7 +72,7 @@ func processExpiredSplits() {
 		var splits []models.BookingSplit
 		if err := tx.Where("booking_id = ?", b.ID).Find(&splits).Error; err == nil {
 			stripe.Key = os.Getenv("STRIPE_SECRET_KEY")
-			
+
 			for _, split := range splits {
 				if split.Status == "paid" && split.StripeClientSecret != "" {
 					// Extract PaymentIntent ID from ClientSecret (pi_123_secret_abc -> pi_123)
@@ -94,13 +95,20 @@ func processExpiredSplits() {
 		}
 
 		// Also refund the primary user if they paid
-		if b.PrimaryPaid {
-			// In our simplified logic, all splits share the same PaymentIntent
-			// Or the primary user might have a separate PI. 
-			// If we had the Primary's PI, we would refund it here.
-			// Note: Stripe prevents duplicate refunds for the same amount/PI if already fully refunded,
-			// but we should ideally track the primary user's PI separately.
-			// For this fix, we assume if they paid, they need a refund.
+		if b.PrimaryPaid && b.StripeClientSecret != "" {
+			parts := strings.Split(b.StripeClientSecret, "_secret_")
+			if len(parts) > 0 {
+				piID := parts[0]
+				params := &stripe.RefundParams{
+					PaymentIntent: stripe.String(piID),
+				}
+				_, err := refund.New(params)
+				if err != nil {
+					fmt.Printf("[CRON ERROR] Failed to refund Primary PI %s: %v\n", piID, err)
+				} else {
+					fmt.Printf("[CRON INFO] Successfully refunded Primary PI %s\n", piID)
+				}
+			}
 		}
 
 		// 4. Invalidate all associated BookingSplits (WhatsApp links)

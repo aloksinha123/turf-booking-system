@@ -32,6 +32,7 @@ func ConnectDatabase() {
 		&models.Slot{},    // Depends on Turf
 		&models.Booking{}, // Depends on User + Slot
 		&models.BookingSplit{}, // Depends on Booking
+		&models.Waitlist{}, // Depends on User + Slot
 	)
 	if err != nil {
 		log.Println("Migration Failed: ", err)

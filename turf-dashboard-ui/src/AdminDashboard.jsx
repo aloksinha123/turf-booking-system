@@ -88,6 +88,44 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
     }
   };
 
+  // Force Release Slot
+  const forceReleaseSlot = async (slotId) => {
+    try {
+      const response = await fetchApi(`${apiBase}/admin/slots/${slotId}/release`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        triggerAlert("Slot forcefully released!", false);
+        loadAdminData();
+      } else {
+        const data = await response.json();
+        triggerAlert(data.error || "Failed to release slot", true);
+      }
+    } catch (err) {
+      triggerAlert("Network error", true);
+    }
+  };
+
+  // Extend Hold
+  const extendSlotHold = async (slotId) => {
+    try {
+      const response = await fetchApi(`${apiBase}/admin/slots/${slotId}/extend`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        triggerAlert("Hold extended by 5 minutes", false);
+        loadAdminData();
+      } else {
+        const data = await response.json();
+        triggerAlert(data.error || "Failed to extend hold", true);
+      }
+    } catch (err) {
+      triggerAlert("Network error", true);
+    }
+  };
+
   // Apply Multiplier
   const handleApplyMultiplier = async () => {
     setIsApplying(true);
@@ -676,6 +714,11 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
                               <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>
                               Booked
                             </span>
+                          ) : slot.hold_expires_at && new Date(slot.hold_expires_at) > new Date() ? (
+                            <span className="bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 font-black px-2 py-0.5 rounded text-[9px] uppercase tracking-wider inline-flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"></span>
+                              Pending Hold
+                            </span>
                           ) : (
                             <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-black px-2 py-0.5 rounded text-[9px] uppercase tracking-wider inline-flex items-center gap-1">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -701,6 +744,26 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
                             >
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
                             </button>
+
+                            {/* Admin Controls for Pending Hold */}
+                            {slot.hold_expires_at && new Date(slot.hold_expires_at) > new Date() && !slot.is_booked && (
+                              <>
+                                <button
+                                  onClick={() => extendSlotHold(slot.id)}
+                                  className="text-xs font-bold bg-slate-800 text-slate-300 hover:text-white px-2 py-1 rounded transition-colors"
+                                  title="Extend Hold by 5 minutes"
+                                >
+                                  +5M
+                                </button>
+                                <button
+                                  onClick={() => forceReleaseSlot(slot.id)}
+                                  className="text-xs font-bold bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 px-2 py-1 rounded transition-colors"
+                                  title="Force Release Slot"
+                                >
+                                  ❌
+                                </button>
+                              </>
+                            )}
 
                             {/* Emergency Freeze/Lock Toggle */}
                             <div className="flex flex-col items-center gap-0.5">

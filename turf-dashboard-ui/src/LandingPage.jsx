@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 export default function LandingPage({
   slots,
   initiateBooking,
+  joinWaitlist,
   isProcessingId,
   selectedDate,
   setSelectedDate,
@@ -16,7 +17,8 @@ export default function LandingPage({
   resetSystem,
   BookingHistory,
   API_BASE,
-  downloadTicketPDF
+  downloadTicketPDF,
+  triggerAlert
 }) {
   const [viewMode, setViewMode] = useState('map'); // 'grid' | 'map'
   const [hoveredTurf, setHoveredTurf] = useState(null);
@@ -89,7 +91,7 @@ export default function LandingPage({
 
       {/* Main Content Area */}
       {showHistory ? (
-        <BookingHistory apiBase={API_BASE} token={user?.token} downloadTicketPDF={downloadTicketPDF} /> 
+        <BookingHistory apiBase={API_BASE} token={user?.token} downloadTicketPDF={downloadTicketPDF} triggerAlert={triggerAlert} /> 
       ) : (
       <>
       {/* Hero Section */}
@@ -460,12 +462,15 @@ export default function LandingPage({
                 const isSurge = slot.pricing_tag === 'SURGE';
                 const isFlashSale = slot.pricing_tag === 'FLASH_SALE';
                 const isPeak = isSurge; // Maintain variable for styling
+                const isHeld = slot.hold_expires_at && new Date(slot.hold_expires_at) > new Date();
 
                 return (
                   <div 
                     key={slot.id} 
                     className={`relative bg-[#0d1220]/80 border rounded-3xl p-6 flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl ${
-                      isSurge 
+                      isHeld
+                        ? 'border-yellow-500/50 shadow-[0_8px_30px_rgba(234,179,8,0.08)] hover:shadow-[0_12px_40px_rgba(234,179,8,0.18)] hover:border-yellow-400'
+                        : isSurge 
                         ? 'border-purple-500/50 shadow-[0_8px_30px_rgba(168,85,247,0.08)] hover:shadow-[0_12px_40px_rgba(168,85,247,0.18)] hover:border-purple-400' 
                         : isFlashSale
                         ? 'border-blue-500/50 shadow-[0_8px_30px_rgba(59,130,246,0.08)] hover:shadow-[0_12px_40px_rgba(59,130,246,0.18)] hover:border-blue-400'
@@ -509,14 +514,16 @@ export default function LandingPage({
                       </div>
                       <button 
                         onClick={() => initiateBooking(slot)}
-                        disabled={isProcessingId === slot.id}
+                        disabled={isProcessingId === slot.id && !isHeld}
                         className={`text-xs font-black uppercase tracking-wider px-5 py-3 rounded-xl transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2 cursor-pointer ${
-                          isPeak 
+                          isHeld
+                            ? 'bg-yellow-500 hover:bg-yellow-400 text-yellow-950 shadow-[0_0_15px_rgba(234,179,8,0.2)]'
+                            : isPeak 
                             ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.3)]' 
                             : 'bg-emerald-500 hover:bg-emerald-400 text-[#0b0f19] font-black shadow-[0_0_15px_rgba(16,185,129,0.2)]'
                         }`}
                       >
-                        {isProcessingId === slot.id ? 'Holding...' : (activeTab === 'matchmaking' ? 'Join Match' : 'Book Now')}
+                        {isProcessingId === slot.id && !isHeld ? 'Holding...' : isHeld ? '⏳ Join Waitlist' : (activeTab === 'matchmaking' ? 'Join Match' : 'Book Now')}
                       </button>
                     </div>
                   </div>

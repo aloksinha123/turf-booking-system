@@ -11,7 +11,7 @@ import BookingHistory from './BookingHistory';
 import { jsPDF } from 'jspdf';
 
 // Initialize Stripe outside of component to avoid recreating it on every render
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || "pk_test_dummy");
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || "pk_test_51DummyKeyForLocalDevTest1234567890");
 
 export default function App() {
   // BUG FIX: Determine if this is the PaySplit route BEFORE hooks (read-only, no early return yet)
@@ -25,11 +25,7 @@ export default function App() {
   const [selectedTurf, setSelectedTurf] = useState("1");
   const [activeTab, setActiveTab] = useState('premium');
   const [configModal, setConfigModal] = useState({
-    isOpen: false,
-    slot: null,
-    isSplit: false,
-    friendsCount: 4,
-    isMatchmaking: false
+    isOpen: false, slot: null, isSplit: false, friendsCount: 4, isMatchmaking: false, isMatchmakingJoin: false, idempotencyKey: null
   });
   const [paymentModal, setPaymentModal] = useState({
     isOpen: false,
@@ -87,6 +83,11 @@ export default function App() {
           if (String(msg.turf_id) === selectedTurf) {
             loadSlots();
           }
+        } else if (msg.type === 'WAITLIST_TURN') {
+          if (msg.user_id === user?.id) {
+            triggerAlert(`Your waitlisted slot is now available! Book it quickly before someone else does!`, false);
+            loadSlots();
+          }
         }
       } catch (_) { /* ignore non-JSON messages */ }
     };
@@ -118,7 +119,8 @@ export default function App() {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}` 
+          "Authorization": `Bearer ${token}`,
+          "Idempotency-Key": configModal.idempotencyKey
         },
         body: JSON.stringify(payload)
       });
@@ -164,9 +166,24 @@ export default function App() {
     if (!token) return triggerAlert("Please login first", true);
     // If it's a matchmaking slot, they are joining an existing match
     if (slot.matchmaking_status === 'open_for_players') {
-      setConfigModal({ isOpen: true, slot, isSplit: false, friendsCount: 0, isMatchmaking: false, isMatchmakingJoin: true });
+      setConfigModal({ isOpen: true, slot, isSplit: false, friendsCount: 0, isMatchmaking: false, isMatchmakingJoin: true, idempotencyKey: crypto.randomUUID() });
     } else {
-      setConfigModal({ isOpen: true, slot, isSplit: false, friendsCount: 4, isMatchmaking: false, isMatchmakingJoin: false });
+      setConfigModal({ isOpen: true, slot, isSplit: false, friendsCount: 4, isMatchmaking: false, isMatchmakingJoin: false, idempotencyKey: crypto.randomUUID() });
+    }
+  };
+
+  const joinWaitlist = async (slotId) => {
+    if (!user) return triggerAlert("Please log in to join the waitlist", true);
+    try {
+      const res = await fetchApi(`${API_BASE}/slots/${slotId}/waitlist`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to join waitlist');
+      triggerAlert(data.message, false);
+    } catch (err) {
+      triggerAlert(err.message, true);
     }
   };
 
@@ -207,7 +224,7 @@ export default function App() {
     }
   };
 
-  const downloadTicketPDF = async (bookingId, slot, amount, isSplit) => {
+  const downloadTicketPDF = async (bookingId, slot, amount, isSplit, status = 'pending') => {
     if (!slot) return;
     try {
       const qrData = JSON.stringify({
@@ -222,7 +239,7 @@ export default function App() {
 
       const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qrData)}`;
       
-      const response = await fetchApi(qrCodeUrl);
+      const response = await fetch(qrCodeUrl);
       const blob = await response.blob();
       const qrBase64 = await new Promise((resolve) => {
         const reader = new FileReader();
@@ -278,9 +295,12 @@ export default function App() {
       doc.text(`${slot.start_time} - ${slot.end_time}`, 55, 82);
       doc.text(`INR ${amount}`, 55, 90);
       
-      if (isSplit) {
+      if (isSplit && status === 'pending') {
         doc.setTextColor(245, 158, 11);
         doc.text("SPLIT PAYMENT - PENDING", 55, 98);
+      } else if (isSplit && (status === 'confirmed' || status === 'completed')) {
+        doc.setTextColor(16, 185, 129);
+        doc.text("SUCCESSFUL PAYMENT DONE", 55, 98);
       } else {
         doc.setTextColor(16, 185, 129);
         doc.text("CONFIRMED & ACTIVE", 55, 98);
@@ -741,14 +761,11 @@ export default function App() {
                     <p className="text-slate-500 text-[10px] font-bold mt-1">Complete payment before timer expires</p>
                   </div>
 
-                  {paymentModal.clientSecret && (
-                    <Elements stripe={stripePromise} options={{ clientSecret: paymentModal.clientSecret }}>
-                      <CheckoutForm 
-                        amount={paymentModal.amount} 
-                        expiresAt={paymentModal.expiresAt} 
-                        onSuccess={async () => {
+                  {paymentModal.clientSecret && paymentModal.clientSecret.includes('mock') ? (
+                    <div className="space-y-3">
+                      <button 
+                        onClick={async () => {
                           if (paymentModal.splitTokens.length > 0) {
-                            // Hit mock webhook to register primary user payment
                             try {
                               await fetchApi(`${API_BASE}/webhooks/payment`, {
                                 method: "POST",
@@ -758,8 +775,39 @@ export default function App() {
                             } catch (e) {
                               console.error("Mock webhook failed", e);
                             }
-                            
-                            // If split, remove clientSecret to trigger the success screen above
+                            setPaymentModal({...paymentModal, clientSecret: null});
+                            loadSlots();
+                          } else {
+                            handlePayment('success');
+                          }
+                        }}
+                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-4 rounded-xl shadow-lg shadow-emerald-500/30 transition-all active:scale-95 text-lg"
+                      >
+                        Pay ₹{paymentModal.amount}
+                      </button>
+                      <button 
+                        onClick={() => handlePayment('failed')}
+                        className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-3 rounded-xl transition-all"
+                      >
+                        Cancel Booking
+                      </button>
+                    </div>
+                  ) : paymentModal.clientSecret && (
+                    <Elements stripe={stripePromise} options={{ clientSecret: paymentModal.clientSecret }}>
+                      <CheckoutForm 
+                        amount={paymentModal.amount} 
+                        expiresAt={paymentModal.expiresAt} 
+                        onSuccess={async () => {
+                          if (paymentModal.splitTokens.length > 0) {
+                            try {
+                              await fetchApi(`${API_BASE}/webhooks/payment`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ booking_id: paymentModal.bookingId, status: "success", is_primary_split: true })
+                              });
+                            } catch (e) {
+                              console.error("Mock webhook failed", e);
+                            }
                             setPaymentModal({...paymentModal, clientSecret: null});
                             loadSlots();
                           } else {
@@ -830,6 +878,7 @@ export default function App() {
         <LandingPage
           slots={slots}
           initiateBooking={initiateBooking}
+          joinWaitlist={joinWaitlist}
           isProcessingId={isProcessingId}
           selectedDate={selectedDate}
           setSelectedDate={setSelectedDate}
@@ -844,6 +893,7 @@ export default function App() {
           BookingHistory={BookingHistory}
           API_BASE={API_BASE}
           downloadTicketPDF={downloadTicketPDF}
+          triggerAlert={triggerAlert}
         />
       )}
     </div>

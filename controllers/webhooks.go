@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"fmt"
 	"net/http"
 	"turf-booking-system/config"
 	"turf-booking-system/models"
@@ -22,15 +23,19 @@ func checkAndFinalizeSplit(db *gorm.DB, booking *models.Booking) {
 
 	allPaid := true
 	for _, s := range splits {
+		fmt.Printf("[DEBUG] Split %d status: %s\n", s.ID, s.Status)
 		if s.Status != "paid" {
 			allPaid = false
 			break
 		}
 	}
 
+	fmt.Printf("[DEBUG] PrimaryPaid: %t\n", booking.PrimaryPaid)
 	if !booking.PrimaryPaid {
 		allPaid = false
 	}
+    
+    fmt.Printf("[DEBUG] allPaid resolved to: %t\n", allPaid)
 
 	if allPaid {
 		_ = db.Transaction(func(tx *gorm.DB) error {
@@ -121,6 +126,14 @@ func HandleStripeWebhook(c *gin.Context) {
 				// A friend paid their split
 				config.DB.Model(&models.BookingSplit{}).Where("token = ?", event.Data.Object.Metadata.SplitToken).Update("status", "paid")
 				checkAndFinalizeSplit(nil, &booking)
+				
+				// Broadcast split progress update to the host
+				go func() {
+					websockets.GlobalHub.Broadcast <- map[string]interface{}{
+						"event":      "split_update",
+						"booking_id": booking.ID,
+					}
+				}()
 			} else if event.Data.Object.Metadata.IsPrimarySplit == "true" {
 				// Primary user paid their share
 				booking.PrimaryPaid = true
@@ -212,6 +225,14 @@ func HandlePaymentWebhook(c *gin.Context) {
 				// Friend paid their share in mock flow
 				tx.Model(&models.BookingSplit{}).Where("token = ?", req.SplitToken).Update("status", "paid")
 				checkAndFinalizeSplit(tx, &booking)
+				
+				// Broadcast split progress update to the host
+				go func() {
+					websockets.GlobalHub.Broadcast <- map[string]interface{}{
+						"event":      "split_update",
+						"booking_id": booking.ID,
+					}
+				}()
 			} else if req.IsPrimarySplit {
 				// Primary user paid their share
 				booking.PrimaryPaid = true

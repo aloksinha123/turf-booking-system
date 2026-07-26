@@ -5,7 +5,7 @@ import { Elements } from '@stripe/react-stripe-js';
 import CheckoutForm from './CheckoutForm';
 import { jsPDF } from 'jspdf';
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || "pk_test_dummy");
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || "pk_test_51DummyKeyForLocalDevTest1234567890");
 const API_BASE = "http://localhost:8085";
 
 export default function PaySplit() {
@@ -42,6 +42,32 @@ export default function PaySplit() {
       });
   }, []);
 
+  const declineInvite = async () => {
+    if (!window.confirm("Are you sure you want to decline this invitation? The host will be notified.")) return;
+    try {
+      setLoading(true);
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+      
+      const res = await fetchApi(`${API_BASE}/api/v1/splits/decline/${token}`, {
+        method: 'POST'
+      });
+      
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to decline");
+      }
+      
+      setSuccess(true);
+      setSplitData(null);
+      setError("You have declined this invitation.");
+    } catch (err) {
+      alert("Error: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) return (
     <div className="min-h-screen bg-slate-50 grass-bg flex items-center justify-center">
       <div className="text-center">
@@ -74,7 +100,7 @@ export default function PaySplit() {
 
       const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qrData)}`;
       
-      const response = await fetchApi(qrCodeUrl);
+      const response = await fetch(qrCodeUrl);
       const blob = await response.blob();
       const qrBase64 = await new Promise((resolve) => {
         const reader = new FileReader();
@@ -230,7 +256,31 @@ export default function PaySplit() {
           </div>
         </div>
 
-        {splitData.client_secret && (
+        {splitData.client_secret && splitData.client_secret.includes('mock') ? (
+          <div className="space-y-3">
+            <button 
+              onClick={async () => {
+                try {
+                  await fetchApi(`${API_BASE}/webhooks/payment`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ booking_id: splitData.booking_id, status: "success", split_token: splitData.token })
+                  });
+                } catch (e) { console.error("Mock webhook failed", e); }
+                setSuccess(true);
+              }}
+              className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-4 rounded-xl shadow-lg shadow-emerald-500/30 transition-all active:scale-95 text-lg"
+            >
+              Pay ₹{splitData.share_amount}
+            </button>
+            <button 
+              onClick={() => setError("Payment failed. Please try again.")}
+              className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-3 rounded-xl transition-all"
+            >
+              Cancel Payment
+            </button>
+          </div>
+        ) : splitData.client_secret && (
           <Elements stripe={stripePromise} options={{ clientSecret: splitData.client_secret, appearance: { theme: 'stripe', variables: { colorPrimary: '#10b981' } } }}>
             <CheckoutForm 
               amount={splitData.share_amount}
@@ -248,8 +298,16 @@ export default function PaySplit() {
             />
           </Elements>
         )}
+
+        <div className="mt-6 text-center">
+          <button 
+            onClick={declineInvite}
+            className="text-xs font-bold text-slate-400 hover:text-red-500 underline transition-colors cursor-pointer"
+          >
+            I can't make it. Decline Invitation.
+          </button>
+        </div>
       </div>
     </div>
   );
 }
-

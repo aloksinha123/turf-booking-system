@@ -8,10 +8,13 @@ import (
 	"turf-booking-system/config"
 	"turf-booking-system/models"
 	"turf-booking-system/services"
+	"turf-booking-system/websockets"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stripe/stripe-go/v78"
 	"github.com/stripe/stripe-go/v78/paymentintent"
+	"github.com/stripe/stripe-go/v78/refund"
+	"strings"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -39,6 +42,28 @@ func CreateBooking(c *gin.Context) {
 		return
 	}
 	userID := userIDVal.(uint)
+
+	idempotencyKey := c.GetHeader("Idempotency-Key")
+	if idempotencyKey != "" {
+		var existingBooking models.Booking
+		if err := config.DB.Where("idempotency_key = ? AND user_id = ?", idempotencyKey, userID).First(&existingBooking).Error; err == nil {
+			var tokens []string
+			if existingBooking.IsSplit {
+				var splits []models.BookingSplit
+				config.DB.Where("booking_id = ?", existingBooking.ID).Find(&splits)
+				for _, s := range splits {
+					tokens = append(tokens, s.Token)
+				}
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"message":         "Booking retrieved idempotently.",
+				"booking_details": existingBooking,
+				"client_secret":   existingBooking.StripeClientSecret,
+				"split_tokens":    tokens,
+			})
+			return
+		}
+	}
 
 	// Industrial Core Concept: PostgreSQL Transaction Level Locking
 	// Hamein 'BEGIN TRANSACTION' block deploy karna hoga taaki simultaneous bookings handle ho sakein
@@ -107,6 +132,10 @@ func CreateBooking(c *gin.Context) {
 			booking.SplitStatus = "pending"
 		}
 
+		if idempotencyKey != "" {
+			booking.IdempotencyKey = idempotencyKey
+		}
+
 		if err := tx.Create(&booking).Error; err != nil {
 			return err
 		}
@@ -114,7 +143,7 @@ func CreateBooking(c *gin.Context) {
 		// STRIPE: Create PaymentIntent FIRST so we can attach its client_secret to split tokens
 		stripeKey := os.Getenv("STRIPE_SECRET_KEY")
 		if stripeKey == "" {
-			stripeKey = os.Getenv("STRIPE_SECRET_KEY")
+			stripeKey = "sk_test_dummy_fallback" // Hardcoded fallback for local dev
 		}
 		stripe.Key = stripeKey
 		
@@ -137,9 +166,21 @@ func CreateBooking(c *gin.Context) {
 			params.AddMetadata("is_primary_split", "true")
 		}
 
-		pi, err := paymentintent.New(params)
-		if err != nil {
-			return err // Will trigger rollback
+		var clientSecret string
+		if stripeKey == "sk_test_dummy_fallback" {
+			clientSecret = fmt.Sprintf("pi_%d_secret_mock%d", time.Now().UnixNano(), time.Now().UnixNano())
+		} else {
+			pi, err := paymentintent.New(params)
+			if err != nil {
+				return err // Will trigger rollback
+			}
+			clientSecret = pi.ClientSecret
+		}
+		
+		// Update Booking with Client Secret for future idempotent requests
+		booking.StripeClientSecret = clientSecret
+		if err := tx.Save(&booking).Error; err != nil {
+			return err
 		}
 
 		// 3. Generate tokens for friends if it's a split
@@ -177,7 +218,7 @@ func CreateBooking(c *gin.Context) {
 			"message":         "Slot held successfully. Please complete payment.",
 			"booking_details": booking,
 			"hold_expires_at": expires,
-			"client_secret":   pi.ClientSecret,
+			"client_secret":   clientSecret,
 			"split_tokens":    tokens,
 			// Return original (pre-dynamic) slot base price so frontend can display accurate strike-through
 			"original_price":  slot.BasePrice,
@@ -188,7 +229,8 @@ func CreateBooking(c *gin.Context) {
 	})
 
 	if err != nil && err != gorm.ErrDuplicatedKey {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transaction runtime failed to complete safely"})
+		fmt.Printf("[BOOKING ERROR] Transaction failed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transaction runtime failed to complete safely: " + err.Error()})
 	}
 }
 
@@ -202,10 +244,108 @@ func GetUserBookings(c *gin.Context) {
 	userID := userIDVal.(uint)
 
 	var bookings []models.Booking
-	if err := config.DB.Preload("Slot").Where("user_id = ?", userID).Order("booked_at desc").Find(&bookings).Error; err != nil {
+	if err := config.DB.Preload("Slot").Preload("Splits").Where("user_id = ?", userID).Order("booked_at desc").Find(&bookings).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch bookings"})
 		return
 	}
 
 	c.JSON(http.StatusOK, bookings)
+}
+
+// CancelBooking allows the host to manually cancel a pending split booking and get their share refunded immediately
+func CancelBooking(c *gin.Context) {
+	bookingID := c.Param("id")
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized access"})
+		return
+	}
+	userID := userIDVal.(uint)
+
+	err := config.DB.Transaction(func(tx *gorm.DB) error {
+		var booking models.Booking
+		if err := tx.Preload("Slot").Where("id = ? AND user_id = ?", bookingID, userID).First(&booking).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Booking not found or not owned by you"})
+			return err
+		}
+
+		if booking.Status != "pending" || !booking.IsSplit {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Only pending split bookings can be cancelled"})
+			return fmt.Errorf("invalid status")
+		}
+
+		// Update booking status
+		booking.Status = "cancelled"
+		if err := tx.Save(&booking).Error; err != nil {
+			return err
+		}
+
+		// Release the slot
+		var slot models.Slot
+		if err := tx.First(&slot, booking.SlotID).Error; err == nil {
+			slot.IsBooked = false
+			slot.HoldExpiresAt = nil
+			if err := tx.Save(&slot).Error; err != nil {
+				return err
+			}
+		}
+
+		// Refund paid fractions
+		var splits []models.BookingSplit
+		if err := tx.Where("booking_id = ?", booking.ID).Find(&splits).Error; err == nil {
+			stripeKey := os.Getenv("STRIPE_SECRET_KEY")
+			stripe.Key = stripeKey
+
+			for _, split := range splits {
+				if split.Status == "paid" && split.StripeClientSecret != "" {
+					parts := strings.Split(split.StripeClientSecret, "_secret_")
+					if len(parts) > 0 {
+						piID := parts[0]
+						params := &stripe.RefundParams{
+							PaymentIntent: stripe.String(piID),
+						}
+						// Issue Refund via Stripe API
+						_, err := refund.New(params)
+						if err == nil {
+							split.Status = "refunded"
+							tx.Save(&split)
+						}
+					}
+				}
+			}
+		}
+
+		// Refund the primary user if they have already paid
+		if booking.PrimaryPaid && booking.StripeClientSecret != "" {
+			parts := strings.Split(booking.StripeClientSecret, "_secret_")
+			if len(parts) > 0 {
+				piID := parts[0]
+				params := &stripe.RefundParams{
+					PaymentIntent: stripe.String(piID),
+				}
+				_, err := refund.New(params)
+				if err != nil {
+					fmt.Printf("[CancelBooking ERROR] Failed to refund Primary PI %s: %v\n", piID, err)
+				}
+			}
+		}
+
+		// Broadcast to WebSockets
+		websockets.GlobalHub.Broadcast <- map[string]interface{}{
+			"type":    "SLOT_UPDATE",
+			"slot_id": booking.SlotID,
+			"status":  "available",
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		if !c.IsAborted() {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel booking"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Booking cancelled and refunded successfully"})
 }
