@@ -1,0 +1,120 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+:root {
+  --stadium-dark: #f8fafc;
+  --stadium-card: #ffffff;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background-color: var(--stadium-dark);
+    color: #0f172a;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Grass-texture grid overlay class for sections */
+  .grass-bg {
+    background-image: linear-gradient(rgba(16,185,129,0.02) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(16,185,129,0.02) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .grass-bg-dark {
+    background-image: linear-gradient(rgba(16,185,129,0.04) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(16,185,129,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* Stadium border hover effect for turf cards */
+  .turf-card-hover {
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+/* Custom classes styled using standard CSS to avoid Tailwind v4 compile errors */
+.price-tooltip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.price-tooltip .tooltip-content {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 8px;
+  width: 224px;
+  background-color: #ffffff;
+  color: #0f172a;
+  font-size: 12px;
+  border-radius: 12px;
+  padding: 12px;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 50;
+}
+
+.price-tooltip:hover .tooltip-content {
+  opacity: 1;
+}
+
+/* Animated glow badges */
+.glow-green {
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.6);
+}
+.glow-orange {
+  box-shadow: 0 0 15px rgba(249, 115, 22, 0.6);
+}
+.glow-lime {
+  box-shadow: 0 0 15px rgba(132, 204, 22, 0.6);
+}
+.glow-gold {
+  box-shadow: 0 0 15px rgba(245, 158, 11, 0.6);
+}
+.glow-indigo {
+  box-shadow: 0 0 15px rgba(99, 102, 241, 0.6);
+}
+
+
+
+/* Optional Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9; 
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1; 
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8; 
+}
+
+@keyframes badge-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+.animate-badge-float {
+  animation: badge-float 3s ease-in-out infinite;
+}
+
+@keyframes glow-green {
+  0%, 100% { box-shadow: 0 0 10px rgba(16, 185, 129, 0.4); border-color: rgba(16, 185, 129, 1); }
+  50% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.8); border-color: rgba(52, 211, 153, 1); }
+}
+.animate-glow-green {
+  animation: glow-green 2s ease-in-out infinite;
+}

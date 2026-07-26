@@ -1,0 +1,26 @@
+# Database files
+*.db
+*.db-journal
+turf.db
+turf.db-journal
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Node / React
+node_modules/
+dist/
+build/
+.DS_Store
+.env
+
+# Editor
+.idea/
+.vscode/
+*.swp
