@@ -38,6 +38,8 @@ func ConnectDatabase() {
 		&models.PricingRule{},
 		&models.Coupon{},
 		&models.PricingAuditLog{},
+		&models.AdminActivityLog{},
+		&models.SystemSetting{},
 	)
 	if err != nil {
 		log.Println("Migration Failed: ", err)

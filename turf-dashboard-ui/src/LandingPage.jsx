@@ -27,6 +27,14 @@ export default function LandingPage({
   const [hoveredTurf, setHoveredTurf] = useState(null);
   const [mainNavTab, setMainNavTab] = useState('booking'); // 'booking' | 'matchmaking' | 'history'
   const [breakdownModalSlot, setBreakdownModalSlot] = useState(null);
+  const [maintStatus, setMaintStatus] = useState({ is_maintenance: false, reason: '' });
+
+  React.useEffect(() => {
+    fetch(`${API_BASE}/api/v1/system/status`)
+      .then(res => res.json())
+      .then(data => setMaintStatus(data))
+      .catch(() => {});
+  }, [API_BASE]);
 
   // Helper to check availability per turf
   // Turf A = ID 1 (Football), Turf B = ID 2 (Cricket), Turf C = ID 3 (Badminton)
@@ -50,6 +58,14 @@ export default function LandingPage({
 
       {/* Cyberpunk Grid Overlay */}
       <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.01)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.01)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none"></div>
+
+      {/* Maintenance Mode Active Banner */}
+      {maintStatus.is_maintenance && (
+        <div className="bg-rose-600 text-white text-center py-2.5 px-4 font-black text-xs uppercase tracking-widest border-b border-rose-500 shadow-xl flex items-center justify-center gap-2 z-50 relative">
+          <span className="animate-ping w-2 h-2 rounded-full bg-white"></span>
+          🚫 System Maintenance Active: {maintStatus.reason || "Slot bookings are temporarily paused."}
+        </div>
+      )}
 
       {/* Top Navbar */}
       <header className="border-b border-slate-800/80 sticky top-0 z-40 bg-[#0b0f19]/90 backdrop-blur-xl">

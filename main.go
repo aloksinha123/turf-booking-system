@@ -67,13 +67,14 @@ func main() {
 	router.GET("/api/v1/matches/:id", controllers.GetMatchDetails)
 	router.GET("/api/v1/matches/:id/players", controllers.GetMatchPlayers)
 	router.POST("/api/v1/coupons/apply", controllers.ApplyCoupon)
+	router.GET("/api/v1/system/status", controllers.GetPublicSystemStatus)
 
 	// WebSockets
 	router.GET("/ws", websockets.ServeWS)
 
 	// Protected Routes
 	customerRoutes := router.Group("/")
-	customerRoutes.Use(middlewares.IsCustomer())
+	customerRoutes.Use(middlewares.IsCustomer(), middlewares.MaintenanceCheck())
 	{
 		customerRoutes.POST("/slots/book", controllers.CreateBooking)
 		customerRoutes.GET("/user/bookings", controllers.GetUserBookings)
@@ -102,6 +103,16 @@ func main() {
 		adminRoutes.POST("/slots/:id/release", controllers.ForceReleaseSlot)
 		adminRoutes.POST("/slots/:id/extend", controllers.ExtendSlotHold)
 		adminRoutes.POST("/seed_demo", controllers.SeedDemoAnalytics)
+
+		// Admin Command Center & Telemetry Routes
+		adminRoutes.GET("/v2/analytics", controllers.GetV2Analytics)
+		adminRoutes.POST("/slots/bulk-generate", controllers.BulkSlotGeneration)
+		adminRoutes.POST("/slots/bulk-price", controllers.BulkEditSlotPrice)
+		adminRoutes.POST("/slots/bulk-lock", controllers.BulkLockSlots)
+		adminRoutes.POST("/system/maintenance", controllers.ToggleMaintenanceMode)
+		adminRoutes.GET("/export/bookings", controllers.ExportBookingsCSV)
+		adminRoutes.GET("/activity-logs", controllers.GetAdminActivityLogs)
+		adminRoutes.GET("/system/health", controllers.GetSystemHealth)
 
 		// Admin Dynamic Pricing Yield Engine Routes
 		adminRoutes.GET("/pricing-rules", controllers.AdminGetPricingRules)

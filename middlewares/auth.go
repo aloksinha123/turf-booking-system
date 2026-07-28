@@ -133,6 +133,79 @@ func IsAdmin() gin.HandlerFunc {
 		// Store user data in context for subsequent handlers
 		c.Set("user_id", userID)
 		c.Set("role", role)
+		c.Set("admin_role", user.AdminRole)
+		c.Next()
+	}
+}
+
+// RequireAdminRole checks specific admin permissions ("owner", "manager", "staff")
+func RequireAdminRole(allowedRoles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		adminRoleVal, exists := c.Get("admin_role")
+		adminRole := "owner" // Default superadmin
+		if exists && adminRoleVal != nil {
+			adminRole = adminRoleVal.(string)
+		}
+		if adminRole == "" {
+			adminRole = "owner"
+		}
+
+		allowed := false
+		for _, r := range allowedRoles {
+			if r == adminRole || adminRole == "owner" { // "owner" always has superadmin access
+				allowed = true
+				break
+			}
+		}
+
+		if !allowed {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": fmt.Sprintf("Access denied. Minimum admin role '%v' required. Your role: '%s'.", allowedRoles, adminRole),
+			})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// MaintenanceCheck middleware blocks customer bookings when maintenance mode is enabled
+func MaintenanceCheck() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var settingMode models.SystemSetting
+		var settingReason models.SystemSetting
+
+		isMaintenance := false
+		reason := "System maintenance in progress."
+
+		if err := config.DB.Where("key = ?", "maintenance_mode").First(&settingMode).Error; err == nil {
+			if settingMode.Value == "true" {
+				isMaintenance = true
+			}
+		}
+
+		if isMaintenance {
+			if err := config.DB.Where("key = ?", "maintenance_reason").First(&settingReason).Error; err == nil && settingReason.Value != "" {
+				reason = settingReason.Value
+			}
+
+			// Allow admin bypass
+			roleVal, exists := c.Get("role")
+			if exists && roleVal.(string) == "admin" {
+				c.Next()
+				return
+			}
+
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error":          "Maintenance Mode Active",
+				"reason":         reason,
+				"is_maintenance": true,
+			})
+			c.Abort()
+			return
+		}
+
 		c.Next()
 	}
 }

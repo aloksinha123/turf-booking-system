@@ -35,6 +35,19 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
   const [couponAllowSurge, setCouponAllowSurge] = useState(false);
   const [submittingCoupon, setSubmittingCoupon] = useState(false);
 
+  // Command Center Feature 5 State
+  const [v2Analytics, setV2Analytics] = useState(null);
+  const [analyticsRange, setAnalyticsRange] = useState('today');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [startDateFilter, setStartDateFilter] = useState('');
+  const [endDateFilter, setEndDateFilter] = useState('');
+  const [systemHealth, setSystemHealth] = useState(null);
+  const [maintenanceMode, setMaintenanceMode] = useState({ is_maintenance: false, reason: '' });
+  const [activityLogs, setActivityLogs] = useState([]);
+  const [selectedSlotIDs, setSelectedSlotIDs] = useState([]);
+  const [bulkPriceModal, setBulkPriceModal] = useState({ show: false, newPrice: '800' });
+  const [bulkGenModal, setBulkGenModal] = useState({ show: false, startDate: selectedDate, endDate: selectedDate, turfId: '1', basePrice: '500' });
+
   // Load all slots and analytics for Admin
   const loadAdminData = async () => {
     try {
@@ -100,6 +113,45 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
       if (resYield.ok) {
         const yieldData = await resYield.json();
         setYieldAnalytics(yieldData);
+      }
+
+      // Fetch V2 Multi-Range Analytics
+      let v2Url = `${apiBase}/admin/v2/analytics?range=${analyticsRange}`;
+      if (statusFilter) v2Url += `&status=${statusFilter}`;
+      if (startDateFilter) v2Url += `&start_date=${startDateFilter}`;
+      if (endDateFilter) v2Url += `&end_date=${endDateFilter}`;
+
+      const resV2 = await fetchApi(v2Url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resV2.ok) {
+        const v2Data = await resV2.json();
+        setV2Analytics(v2Data);
+      }
+
+      // Fetch System Health
+      const resHealth = await fetchApi(`${apiBase}/admin/system/health`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resHealth.ok) {
+        const healthData = await resHealth.json();
+        setSystemHealth(healthData);
+      }
+
+      // Fetch Maintenance Status
+      const resMaint = await fetchApi(`${apiBase}/api/v1/system/status`);
+      if (resMaint.ok) {
+        const maintData = await resMaint.json();
+        setMaintenanceMode(maintData);
+      }
+
+      // Fetch Activity Audit Logs
+      const resLogs = await fetchApi(`${apiBase}/admin/activity-logs`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resLogs.ok) {
+        const logsData = await resLogs.json();
+        setActivityLogs(logsData || []);
       }
     } catch (err) {
       console.error("Admin fetch failed:", err);
@@ -193,7 +245,151 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
 
   useEffect(() => {
     loadAdminData();
-  }, [apiBase, selectedDate]);
+  }, [apiBase, selectedDate, analyticsRange, statusFilter, startDateFilter, endDateFilter]);
+
+  // WebSocket Telemetry Listener for Live Dashboard Updates
+  useEffect(() => {
+    const ws = new WebSocket(`ws://localhost:8085/ws`);
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (
+          data.event === 'slot_update' ||
+          data.event === 'slots_updated' ||
+          data.event === 'maintenance_update' ||
+          data.event === 'match_update'
+        ) {
+          loadAdminData();
+        }
+      } catch (e) {}
+    };
+    return () => ws.close();
+  }, []);
+
+  // CSV Data Export Handler
+  const handleExportBookingsCSV = () => {
+    let url = `${apiBase}/admin/export/bookings?status=${statusFilter}`;
+    if (startDateFilter) url += `&start_date=${startDateFilter}`;
+    if (endDateFilter) url += `&end_date=${endDateFilter}`;
+    window.open(url, '_blank');
+  };
+
+  // Toggle System Maintenance
+  const handleToggleMaintenance = async () => {
+    const nextState = !maintenanceMode.is_maintenance;
+    let reason = maintenanceMode.reason;
+    if (nextState) {
+      const inputReason = window.prompt("Enter maintenance reason text for customers:", "Scheduled system upgrade in progress.");
+      if (inputReason !== null) reason = inputReason;
+    }
+
+    try {
+      const res = await fetchApi(`${apiBase}/admin/system/maintenance`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          is_maintenance: nextState,
+          reason
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        triggerAlert(data.message, false);
+        loadAdminData();
+      }
+    } catch (err) {
+      triggerAlert("Failed to toggle maintenance mode", true);
+    }
+  };
+
+  // Bulk Price Update Submit
+  const handleBulkPriceSubmit = async (e) => {
+    e.preventDefault();
+    const p = parseFloat(bulkPriceModal.newPrice);
+    if (isNaN(p) || p <= 0) return triggerAlert("Invalid bulk price", true);
+
+    try {
+      const res = await fetchApi(`${apiBase}/admin/slots/bulk-price`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          slot_ids: selectedSlotIDs,
+          date: selectedDate,
+          new_price: p
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        triggerAlert(data.message, false);
+        setBulkPriceModal({ show: false, newPrice: '800' });
+        setSelectedSlotIDs([]);
+        loadAdminData();
+      }
+    } catch (err) {
+      triggerAlert("Failed to update bulk price", true);
+    }
+  };
+
+  // Bulk Lock/Unlock Submit
+  const handleBulkLockToggle = async (lockState) => {
+    if (selectedSlotIDs.length === 0) return triggerAlert("Please select slots using checkboxes first", true);
+
+    try {
+      const res = await fetchApi(`${apiBase}/admin/slots/bulk-lock`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          slot_ids: selectedSlotIDs,
+          is_locked: lockState
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        triggerAlert(data.message, false);
+        setSelectedSlotIDs([]);
+        loadAdminData();
+      }
+    } catch (err) {
+      triggerAlert("Failed bulk lock action", true);
+    }
+  };
+
+  // Bulk Multi-Date Slot Generation Submit
+  const handleBulkGenSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetchApi(`${apiBase}/admin/slots/bulk-generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          turf_id: parseInt(bulkGenModal.turfId),
+          start_date: bulkGenModal.startDate,
+          end_date: bulkGenModal.endDate,
+          base_price: parseFloat(bulkGenModal.basePrice) || 500
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        triggerAlert(data.message, false);
+        setBulkGenModal({ ...bulkGenModal, show: false });
+        loadAdminData();
+      }
+    } catch (err) {
+      triggerAlert("Failed to generate bulk slots", true);
+    }
+  };
 
   // Toggle Emergency Lock
   const toggleLock = async (slotId) => {
@@ -417,15 +613,49 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
           {/* Dashboard Header Row */}
           <div className="flex flex-col md:flex-row md:justify-between items-start md:items-center border-b border-slate-800 pb-5 gap-4">
             <div>
-              <h2 className="text-xl md:text-2xl font-black tracking-tight text-white flex items-center gap-2">
-                <span className="w-2 h-6 rounded-full bg-emerald-500 inline-block shadow-[0_0_10px_rgba(16,185,129,0.5)]"></span>
-                Admin Control Center
-              </h2>
-              <p className="text-xs text-slate-400 font-semibold mt-1">Enterprise Multi-Turf SaaS Platform Overview</p>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-2.5 h-6 rounded-full bg-emerald-500 inline-block shadow-[0_0_10px_rgba(16,185,129,0.5)]"></span>
+                <h2 className="text-xl md:text-2xl font-black tracking-tight text-white uppercase">
+                  Admin Command Center
+                </h2>
+                <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full ml-2">
+                  Role: OWNER
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 font-semibold">Enterprise Multi-Turf Command Center & Yield Control Platform</p>
             </div>
-            <div className="flex items-center gap-2 bg-slate-800/80 backdrop-blur border border-slate-700 px-3 py-1.5 rounded-xl shadow-lg self-start md:self-auto">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
-              <span className="text-[9px] text-slate-300 font-black uppercase tracking-wider">Live Monitoring</span>
+
+            {/* System Telemetry & Quick Control Tools */}
+            <div className="flex flex-wrap items-center gap-3">
+              {/* System Health Telemetry Pill */}
+              {systemHealth && (
+                <div className="flex items-center gap-2 bg-slate-800/90 border border-slate-700 px-3 py-2 rounded-xl text-xs font-bold text-slate-300">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>{systemHealth.db_status}</span>
+                  <span className="text-slate-600">|</span>
+                  <span>📡 {systemHealth.active_websocket_clients} WS</span>
+                </div>
+              )}
+
+              {/* CSV Export Button */}
+              <button
+                onClick={handleExportBookingsCSV}
+                className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-black text-xs px-3.5 py-2 rounded-xl transition-all shadow-sm cursor-pointer flex items-center gap-1.5"
+              >
+                📥 Export Bookings CSV
+              </button>
+
+              {/* Maintenance Mode Toggle Button */}
+              <button
+                onClick={handleToggleMaintenance}
+                className={`font-black text-xs px-4 py-2 rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-1.5 border ${
+                  maintenanceMode.is_maintenance
+                    ? 'bg-rose-600 hover:bg-rose-500 border-rose-400 text-white animate-pulse'
+                    : 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/40 text-amber-300'
+                }`}
+              >
+                {maintenanceMode.is_maintenance ? '🚫 MAINTENANCE ACTIVE (Disable)' : '🔧 Enable Maintenance Mode'}
+              </button>
             </div>
           </div>
         </div>
@@ -433,6 +663,79 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
 
       {/* Main Content Area (Light) */}
       <div className="max-w-[1440px] mx-auto px-6 -mt-24 relative z-20">
+
+        {/* ═══════════════════════════════════════════════════════ */}
+        {/* MULTI-RANGE REVENUE & BOOKING FILTER TOOLBAR            */}
+        {/* ═══════════════════════════════════════════════════════ */}
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 mb-6 shadow-2xl flex flex-wrap items-center justify-between gap-4 text-white">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-black uppercase text-slate-400 mr-2">📅 Revenue Range:</span>
+            {['today', 'weekly', 'monthly', 'yearly', 'custom'].map((r) => (
+              <button
+                key={r}
+                onClick={() => setAnalyticsRange(r)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer border ${
+                  analyticsRange === r
+                    ? 'bg-emerald-500 border-emerald-400 text-slate-950 shadow-md'
+                    : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                {r === 'today' ? 'Today' : r === 'weekly' ? '7 Days' : r === 'monthly' ? '30 Days' : r === 'yearly' ? '1 Year' : 'Custom Range'}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3">
+            {analyticsRange === 'custom' && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={startDateFilter}
+                  onChange={(e) => setStartDateFilter(e.target.value)}
+                  className="bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1 text-xs font-bold text-white focus:outline-none"
+                />
+                <span className="text-slate-500 font-bold text-xs">to</span>
+                <input
+                  type="date"
+                  value={endDateFilter}
+                  onChange={(e) => setEndDateFilter(e.target.value)}
+                  className="bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1 text-xs font-bold text-white focus:outline-none"
+                />
+              </div>
+            )}
+
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-white focus:outline-none cursor-pointer"
+            >
+              <option value="">All Statuses</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="pending">Pending Hold</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="expired">Expired</option>
+            </select>
+          </div>
+        </div>
+
+        {/* 🧠 AI Occupancy Insights Banner */}
+        {v2Analytics?.ai_insights?.length > 0 && (
+          <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-purple-950 border border-indigo-500/30 rounded-3xl p-5 mb-6 text-white shadow-xl flex items-start gap-4">
+            <div className="w-10 h-10 bg-indigo-500/20 text-indigo-400 rounded-2xl flex items-center justify-center font-black text-xl flex-shrink-0 border border-indigo-500/30">
+              🧠
+            </div>
+            <div className="flex-grow">
+              <span className="text-[10px] font-black uppercase text-indigo-300 tracking-widest bg-indigo-500/20 px-2 py-0.5 rounded">
+                AI Automated Occupancy & Revenue Insights
+              </span>
+              <div className="mt-2 space-y-1 text-xs font-bold text-slate-200">
+                {v2Analytics.ai_insights.map((insight, idx) => (
+                  <p key={idx}>{insight}</p>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ═══════════════════════════════════════════════════════ */}
         {/* TOP KPI CARDS GRID (4 Columns)                         */}
@@ -702,7 +1005,39 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
                   disabled={isGenerating}
                   className="bg-emerald-500 hover:bg-emerald-400 text-white font-black text-[9px] uppercase tracking-wider py-1.5 px-3 rounded-lg transition-all active:scale-95 disabled:opacity-50 cursor-pointer whitespace-nowrap shadow-sm"
                 >
-                  {isGenerating ? '...' : '⚡ Generate Slots (10AM–10PM)'}
+                  {isGenerating ? '...' : '⚡ Generate Today (10AM–10PM)'}
+                </button>
+                <button
+                  onClick={() => setBulkGenModal({ ...bulkGenModal, show: true })}
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-black text-[9px] uppercase tracking-wider py-1.5 px-3 rounded-lg transition-all active:scale-95 cursor-pointer whitespace-nowrap shadow-sm"
+                >
+                  🗓️ Multi-Date Bulk Generate
+                </button>
+              </div>
+
+              {/* Bulk Edit & Lock Actions */}
+              <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 text-white rounded-xl px-3 py-1.5 shadow-sm">
+                <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider">Bulk ({selectedSlotIDs.length}):</span>
+                <button
+                  onClick={() => setBulkPriceModal({ ...bulkPriceModal, show: true })}
+                  disabled={selectedSlotIDs.length === 0}
+                  className="bg-slate-800 hover:bg-slate-700 text-white font-black text-[9px] uppercase tracking-wider py-1 px-2.5 rounded-md transition-all disabled:opacity-40 cursor-pointer"
+                >
+                  ✏️ Edit Price
+                </button>
+                <button
+                  onClick={() => handleBulkLockToggle(true)}
+                  disabled={selectedSlotIDs.length === 0}
+                  className="bg-rose-500/20 text-rose-300 hover:bg-rose-500/40 font-black text-[9px] uppercase tracking-wider py-1 px-2.5 rounded-md transition-all disabled:opacity-40 cursor-pointer"
+                >
+                  🔒 Freeze
+                </button>
+                <button
+                  onClick={() => handleBulkLockToggle(false)}
+                  disabled={selectedSlotIDs.length === 0}
+                  className="bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/40 font-black text-[9px] uppercase tracking-wider py-1 px-2.5 rounded-md transition-all disabled:opacity-40 cursor-pointer"
+                >
+                  🟢 Unfreeze
                 </button>
               </div>
 
@@ -1188,8 +1523,178 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
           </div>
         </div>
 
+        {/* 📋 Admin Activity Security Audit Trail */}
+        <div className="mt-8 bg-[#0e1422] border border-slate-800 rounded-3xl p-6 shadow-xl text-white">
+          <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+            <div>
+              <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-2">
+                <span>📋</span> Security Audit & Admin Activity Log
+              </h3>
+              <p className="text-xs text-slate-400 font-medium mt-0.5">Real-time audit log of all admin operations</p>
+            </div>
+            <span className="text-xs font-black text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-3 py-1 rounded-xl uppercase">
+              {activityLogs.length} Events Logged
+            </span>
+          </div>
+
+          <div className="overflow-x-auto max-h-60 overflow-y-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-[10px] font-black uppercase text-slate-400 border-b border-slate-800 bg-slate-900/60 sticky top-0">
+                <tr>
+                  <th className="py-2.5 px-3">Timestamp</th>
+                  <th className="py-2.5 px-3">Admin</th>
+                  <th className="py-2.5 px-3">Role</th>
+                  <th className="py-2.5 px-3">Action</th>
+                  <th className="py-2.5 px-3">Target</th>
+                  <th className="py-2.5 px-3">Details</th>
+                  <th className="py-2.5 px-3">IP Address</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800 font-semibold text-slate-300">
+                {activityLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" className="text-center py-6 text-slate-500 font-semibold">No admin actions recorded yet.</td>
+                  </tr>
+                ) : (
+                  activityLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-slate-900/40">
+                      <td className="py-2 px-3 whitespace-nowrap text-slate-400">{new Date(log.created_at).toLocaleString()}</td>
+                      <td className="py-2 px-3 font-bold text-white">{log.admin_name}</td>
+                      <td className="py-2 px-3">
+                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
+                          {log.admin_role || 'owner'}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 font-bold text-amber-400">{log.action}</td>
+                      <td className="py-2 px-3 text-cyan-300">{log.target_resource}</td>
+                      <td className="py-2 px-3 text-slate-400">{log.details}</td>
+                      <td className="py-2 px-3 text-slate-500 font-mono text-[10px]">{log.ip_address}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         {/* System Telemetry & Stress Test Zone */}
         <StressDashboard apiBase={apiBase} token={token} onTestComplete={loadAdminData} />
+
+        {/* ─── BULK PRICE EDIT MODAL ─── */}
+        {bulkPriceModal.show && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#0e1422] border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl text-white">
+              <h3 className="text-lg font-black uppercase tracking-tight mb-2">✏️ Bulk Edit Slot Price</h3>
+              <p className="text-xs text-slate-400 mb-4">Set base price for selected slots on {selectedDate}</p>
+
+              <form onSubmit={handleBulkPriceSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">New Price (INR)</label>
+                  <input
+                    type="number"
+                    min="100"
+                    step="50"
+                    value={bulkPriceModal.newPrice}
+                    onChange={(e) => setBulkPriceModal({ ...bulkPriceModal, newPrice: e.target.value })}
+                    required
+                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm font-bold text-white focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setBulkPriceModal({ ...bulkPriceModal, show: false })}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 font-black text-xs uppercase py-3 rounded-xl transition-all cursor-pointer text-slate-400"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs uppercase py-3 rounded-xl transition-all cursor-pointer shadow-md"
+                  >
+                    Apply Bulk Price
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ─── BULK MULTI-DATE SLOT GENERATION MODAL ─── */}
+        {bulkGenModal.show && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#0e1422] border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl text-white">
+              <h3 className="text-lg font-black uppercase tracking-tight mb-2">🗓️ Bulk Multi-Date Slot Generator</h3>
+              <p className="text-xs text-slate-400 mb-4">Generate 10 AM – 10 PM hourly slots across a date range</p>
+
+              <form onSubmit={handleBulkGenSubmit} className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Start Date</label>
+                    <input
+                      type="date"
+                      value={bulkGenModal.startDate}
+                      onChange={(e) => setBulkGenModal({ ...bulkGenModal, startDate: e.target.value })}
+                      required
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">End Date</label>
+                    <input
+                      type="date"
+                      value={bulkGenModal.endDate}
+                      onChange={(e) => setBulkGenModal({ ...bulkGenModal, endDate: e.target.value })}
+                      required
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Turf ID</label>
+                  <select
+                    value={bulkGenModal.turfId}
+                    onChange={(e) => setBulkGenModal({ ...bulkGenModal, turfId: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white focus:outline-none cursor-pointer"
+                  >
+                    <option value="1">Turf A (Football)</option>
+                    <option value="2">Turf B (Cricket)</option>
+                    <option value="3">Turf C (Badminton)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Base Price (INR)</label>
+                  <input
+                    type="number"
+                    value={bulkGenModal.basePrice}
+                    onChange={(e) => setBulkGenModal({ ...bulkGenModal, basePrice: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white focus:outline-none"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setBulkGenModal({ ...bulkGenModal, show: false })}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 font-black text-xs uppercase py-3 rounded-xl transition-all cursor-pointer text-slate-400"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs uppercase py-3 rounded-xl transition-all cursor-pointer shadow-md"
+                  >
+                    Generate Slots
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
