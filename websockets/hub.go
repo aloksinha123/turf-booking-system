@@ -25,11 +25,13 @@ var upgrader = websocket.Upgrader{
 
 // WSEvent defines structured event payloads broadcast across WebSockets
 type WSEvent struct {
-	Type       string      `json:"type"`                 // e.g. "SLOT_UPDATED", "BOOKING_CREATED", "ONLINE_COUNT_UPDATE"
-	TargetRole string      `json:"target_role,omitempty"` // "admin", "customer", "" (all)
-	UserID     uint        `json:"user_id,omitempty"`     // Target specific user ID (0 = all)
-	Payload    interface{} `json:"payload"`
-	Timestamp  string      `json:"timestamp"`
+	SeqID        uint64      `json:"seq_id"`               // Monotonically increasing sequence ID
+	Type         string      `json:"type"`                 // e.g. "SLOT_UPDATED", "BOOKING_CREATED", "ONLINE_COUNT_UPDATE"
+	TargetRole   string      `json:"target_role,omitempty"` // "admin", "customer", "" (all)
+	UserID       uint        `json:"user_id,omitempty"`     // Target specific user ID (0 = all)
+	Payload      interface{} `json:"payload"`
+	IsCompressed bool        `json:"is_compressed,omitempty"`
+	Timestamp    string      `json:"timestamp"`
 }
 
 // Hub maintains the set of active clients and broadcasts messages
@@ -78,6 +80,10 @@ func (h *Hub) Run() {
 			if event.Timestamp == "" {
 				event.Timestamp = time.Now().Format(time.RFC3339)
 			}
+
+			// Assign monotonic sequence versioning and store in replay ring buffer
+			GlobalReplayStore.AddEvent(&event)
+
 			data, err := json.Marshal(event)
 			if err != nil {
 				log.Printf("Failed to marshal WSEvent: %v", err)

@@ -478,3 +478,20 @@ func GetSystemHealth(c *gin.Context) {
 		"server_time":          time.Now().Format("2006-01-02 15:04:05 IST"),
 	})
 }
+
+// GetEventReplay streams missed events for clients reconnecting or waking from tab sleep
+func GetEventReplay(c *gin.Context) {
+	lastSeqStr := c.Query("last_seq_id")
+	var lastSeq uint64 = 0
+	if lastSeqStr != "" {
+		fmt.Sscanf(lastSeqStr, "%d", &lastSeq)
+	}
+
+	missedEvents := websockets.GlobalReplayStore.GetEventsSince(lastSeq)
+
+	c.JSON(http.StatusOK, gin.H{
+		"last_seq_id":   lastSeq,
+		"missed_count": len(missedEvents),
+		"events":       missedEvents,
+	})
+}

@@ -69,8 +69,9 @@ func main() {
 	router.POST("/api/v1/coupons/apply", controllers.ApplyCoupon)
 	router.GET("/api/v1/system/status", controllers.GetPublicSystemStatus)
 
-	// WebSockets
+	// WebSockets & Event Replay
 	router.GET("/ws", websockets.ServeWS)
+	router.GET("/ws/replay", controllers.GetEventReplay)
 
 	// Protected Routes
 	customerRoutes := router.Group("/")

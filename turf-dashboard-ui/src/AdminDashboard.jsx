@@ -286,7 +286,7 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
   }, []);
 
   const wsUrl = `ws://localhost:8085/ws`;
-  const { status: wsStatus, onlineCount, toasts, removeToast } = useWebSocket({
+  const { status: wsStatus, onlineCount, lastSeqId, toasts, removeToast } = useWebSocket({
     wsUrl,
     token,
     onEvent: handleWSEvent,
@@ -678,6 +678,8 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
                   <>
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                     <span className="text-emerald-400">🟢 Connected</span>
+                    <span className="text-slate-600">|</span>
+                    <span className="text-indigo-300 font-mono text-[10px]">Seq #{lastSeqId || 0}</span>
                     <span className="text-slate-600">|</span>
                     <span>👥 {onlineCount} Online</span>
                   </>

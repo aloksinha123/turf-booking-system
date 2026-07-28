@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 /**
- * Enterprise Production WebSocket Hook
+ * Enterprise Production WebSocket & Event Replay Hook
  * Features:
- * - JWT authentication handshake
+ * - Monotonic Sequence Versioning (seq_id) & Deduplication
+ * - Automatic Message Acknowledgements (ACK)
+ * - Event Replay Catchup Sync on Reconnect (/ws/replay?last_seq_id=X)
+ * - Page Visibility API listener for Tab Wake Catchup Sync
  * - Exponential backoff auto-reconnection
- * - Ping/Pong heartbeat listener
- * - Graceful fallback to 5s HTTP polling if WS fails
+ * - Heartbeat Ping/Pong listener
+ * - Graceful 5s HTTP polling fallback
  * - Live online user count tracking
  * - Floating Toast notifications for events
- * - Typed event dispatchers for partial state updates
  */
 export function useWebSocket({ wsUrl, token, onEvent, onFallbackPoll }) {
   const [status, setStatus] = useState('reconnecting'); // 'connected' | 'reconnecting' | 'polling'
@@ -19,6 +21,7 @@ export function useWebSocket({ wsUrl, token, onEvent, onFallbackPoll }) {
   const attemptsRef = useRef(0);
   const reconnectTimerRef = useRef(null);
   const pollIntervalRef = useRef(null);
+  const lastSeqIdRef = useRef(0);
 
   // Helper to add toast notification
   const addToast = useCallback((title, message, type = 'info') => {
@@ -32,6 +35,28 @@ export function useWebSocket({ wsUrl, token, onEvent, onFallbackPoll }) {
   const removeToast = useCallback((id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  // Fetch missed events during disconnection or tab sleep
+  const triggerReplayCatchup = useCallback(async () => {
+    try {
+      const res = await fetch(`http://localhost:8085/ws/replay?last_seq_id=${lastSeqIdRef.current}`);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      if (data.events && data.events.length > 0) {
+        console.log(`[WS Replay] Replaying ${data.events.length} missed events since seq #${lastSeqIdRef.current}`);
+        data.events.forEach((evt) => {
+          if (evt.seq_id > lastSeqIdRef.current) {
+            lastSeqIdRef.current = evt.seq_id;
+            if (onEvent) onEvent(evt);
+          }
+        });
+        addToast('⚡ Sync Complete', `Replayed ${data.events.length} missed event updates`, 'info');
+      }
+    } catch (err) {
+      console.warn("Event replay catchup error:", err);
+    }
+  }, [onEvent, addToast]);
 
   const connect = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
@@ -52,6 +77,11 @@ export function useWebSocket({ wsUrl, token, onEvent, onFallbackPoll }) {
       socket.onopen = () => {
         setStatus('connected');
         attemptsRef.current = 0;
+
+        // Perform event catchup sync on reconnect
+        if (lastSeqIdRef.current > 0) {
+          triggerReplayCatchup();
+        }
       };
 
       socket.onmessage = (e) => {
@@ -72,19 +102,31 @@ export function useWebSocket({ wsUrl, token, onEvent, onFallbackPoll }) {
             return;
           }
 
+          // Sequence Versioning & Deduplication
+          if (event.seq_id) {
+            if (event.seq_id <= lastSeqIdRef.current) {
+              console.log(`[WS Deduplicate] Dropping duplicate seq_id #${event.seq_id}`);
+              return; // Ignore duplicate
+            }
+            lastSeqIdRef.current = event.seq_id;
+
+            // Send ACK message to backend
+            socket.send(JSON.stringify({ type: 'ACK', seq_id: event.seq_id }));
+          }
+
           // Trigger Toast Notifications based on Event Types
           switch (event.type) {
             case 'BOOKING_CREATED':
-              addToast('🎉 New Booking Created!', `Booking #${event.payload?.booking_id || ''} confirmed`, 'success');
+              addToast('🎉 New Booking Created!', `Seq #${event.seq_id || ''} - Booking #${event.payload?.booking_id || ''} confirmed`, 'success');
               break;
             case 'PRICE_CHANGED':
-              addToast('⚡ Dynamic Fare Updated', `Slot price changed to ₹${event.payload?.new_price || 'dynamic'}`, 'warning');
+              addToast('⚡ Dynamic Fare Updated', `Seq #${event.seq_id || ''} - Price updated`, 'warning');
               break;
             case 'SLOT_UPDATED':
-              addToast('🔄 Slot State Updated', `Inventory slot #${event.payload?.slot_id || ''} updated`, 'info');
+              addToast('🔄 Slot State Updated', `Seq #${event.seq_id || ''} - Slot #${event.payload?.slot_id || ''} updated`, 'info');
               break;
             case 'MATCHMAKING_UPDATED':
-              addToast('🏆 Match Squad Update', `Player joined matchmaking match #${event.payload?.match_id || ''}`, 'purple');
+              addToast('🏆 Match Squad Update', `Seq #${event.seq_id || ''} - Match #${event.payload?.match_id || ''} updated`, 'purple');
               break;
             case 'SYSTEM_MAINTENANCE':
               addToast('🔧 Maintenance Mode Alert', event.payload?.reason || 'System maintenance in progress', 'danger');
@@ -132,7 +174,22 @@ export function useWebSocket({ wsUrl, token, onEvent, onFallbackPoll }) {
     } catch (err) {
       console.error("WS connection attempt failed:", err);
     }
-  }, [wsUrl, token, onEvent, onFallbackPoll, addToast]);
+  }, [wsUrl, token, onEvent, onFallbackPoll, addToast, triggerReplayCatchup]);
+
+  // Tab Wake Catchup Sync via Page Visibility API
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log("[Tab Wake] Browser tab active. Triggering catchup sync...");
+        triggerReplayCatchup();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [triggerReplayCatchup]);
 
   useEffect(() => {
     connect();
@@ -146,6 +203,7 @@ export function useWebSocket({ wsUrl, token, onEvent, onFallbackPoll }) {
   return {
     status,
     onlineCount,
+    lastSeqId: lastSeqIdRef.current,
     toasts,
     removeToast,
     addToast

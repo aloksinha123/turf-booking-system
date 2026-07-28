@@ -1,6 +1,7 @@
 package websockets
 
 import (
+	"encoding/json"
 	"log"
 	"time"
 
@@ -51,12 +52,21 @@ func (c *Client) ReadPump() {
 	})
 
 	for {
-		_, _, err := c.Conn.ReadMessage()
+		_, message, err := c.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("WebSocket client read error: %v", err)
 			}
 			break
+		}
+
+		// Handle client ACK message
+		var msg struct {
+			Type  string `json:"type"`
+			SeqID uint64 `json:"seq_id"`
+		}
+		if err := json.Unmarshal(message, &msg); err == nil && msg.Type == "ACK" {
+			log.Printf("[WS ACK] Client [User %d] acknowledged event seq_id #%d", c.UserID, msg.SeqID)
 		}
 	}
 }
