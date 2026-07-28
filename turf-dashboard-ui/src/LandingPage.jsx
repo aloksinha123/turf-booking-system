@@ -16,13 +16,14 @@ export default function LandingPage({
   handleLogout,
   resetSystem,
   BookingHistory,
+  Matchmaking,
   API_BASE,
   downloadTicketPDF,
   triggerAlert
 }) {
   const [viewMode, setViewMode] = useState('map'); // 'grid' | 'map'
   const [hoveredTurf, setHoveredTurf] = useState(null);
-  const [showHistory, setShowHistory] = useState(false);
+  const [mainNavTab, setMainNavTab] = useState('booking'); // 'booking' | 'matchmaking' | 'history'
 
   // Helper to check availability per turf
   // Turf A = ID 1 (Football), Turf B = ID 2 (Cricket), Turf C = ID 3 (Badminton)
@@ -66,16 +67,40 @@ export default function LandingPage({
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 flex-wrap">
             <button 
-              onClick={() => setShowHistory(!showHistory)}
-              className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl transition-all active:scale-95 shadow-sm cursor-pointer"
+              onClick={() => setMainNavTab('booking')}
+              className={`text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm cursor-pointer border ${
+                mainNavTab === 'booking'
+                  ? 'bg-emerald-500 border-emerald-400 text-slate-950 font-black'
+                  : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
+              }`}
             >
-              {showHistory ? "Back to Booking" : "My Bookings"}
+              🏟️ Book Turf
+            </button>
+            <button 
+              onClick={() => setMainNavTab('matchmaking')}
+              className={`text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm cursor-pointer border ${
+                mainNavTab === 'matchmaking'
+                  ? 'bg-emerald-500 border-emerald-400 text-slate-950 font-black'
+                  : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              ⚽ Public Matches
+            </button>
+            <button 
+              onClick={() => setMainNavTab('history')}
+              className={`text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm cursor-pointer border ${
+                mainNavTab === 'history'
+                  ? 'bg-emerald-500 border-emerald-400 text-slate-950 font-black'
+                  : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              📋 My Bookings
             </button>
             <button 
               onClick={handleLogout}
-              className="bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-slate-300 text-xs font-bold px-4 py-2.5 rounded-xl transition-all active:scale-95 shadow-sm cursor-pointer"
+              className="bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-slate-300 text-xs font-bold px-4 py-2.5 rounded-xl transition-all active:scale-95 shadow-sm cursor-pointer ml-2"
             >
               Log Out
             </button>
@@ -90,8 +115,10 @@ export default function LandingPage({
       </header>
 
       {/* Main Content Area */}
-      {showHistory ? (
+      {mainNavTab === 'history' ? (
         <BookingHistory apiBase={API_BASE} token={user?.token} downloadTicketPDF={downloadTicketPDF} triggerAlert={triggerAlert} /> 
+      ) : mainNavTab === 'matchmaking' && Matchmaking ? (
+        <Matchmaking apiBase={API_BASE} token={user?.token} user={user} triggerAlert={triggerAlert} />
       ) : (
       <>
       {/* Hero Section */}

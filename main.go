@@ -63,6 +63,9 @@ func main() {
 	// Public Route
 	router.GET("/slots/available", controllers.GetAvailableSlots)
 	router.GET("/api/v1/turfs/:id/slots", controllers.GetTurfSlotsWithPredictivePricing)
+	router.GET("/api/v1/matches", controllers.ListMatches)
+	router.GET("/api/v1/matches/:id", controllers.GetMatchDetails)
+	router.GET("/api/v1/matches/:id/players", controllers.GetMatchPlayers)
 
 	// WebSockets
 	router.GET("/ws", websockets.ServeWS)
@@ -76,6 +79,13 @@ func main() {
 		customerRoutes.POST("/user/bookings/:id/cancel", controllers.CancelBooking)
 		customerRoutes.POST("/slots/:id/waitlist", controllers.JoinWaitlist)
 		customerRoutes.POST("/splits/:id/resend", controllers.ResendSplitInvite)
+
+		// Matchmaking Protected Routes
+		customerRoutes.POST("/api/v1/matches", controllers.CreateMatch)
+		customerRoutes.POST("/api/v1/matches/:id/join", controllers.JoinMatch)
+		customerRoutes.POST("/api/v1/matches/:id/leave", controllers.LeaveMatch)
+		customerRoutes.POST("/api/v1/matches/:id/cancel", controllers.CancelMatch)
+		customerRoutes.GET("/api/v1/user/matches", controllers.GetUserMatches)
 	}
 
 	// Admin Protected Routes
@@ -91,12 +101,18 @@ func main() {
 		adminRoutes.POST("/slots/:id/release", controllers.ForceReleaseSlot)
 		adminRoutes.POST("/slots/:id/extend", controllers.ExtendSlotHold)
 		adminRoutes.POST("/seed_demo", controllers.SeedDemoAnalytics)
+
+		// Admin Matchmaking Routes
+		adminRoutes.GET("/matches", controllers.AdminListMatches)
+		adminRoutes.POST("/matches/:id/cancel", controllers.AdminCancelMatch)
 		
 		// Dev/Test: Stress test & reset all slots
 		adminRoutes.POST("/api/v1/test/stress", controllers.RunStressTest)
 		adminRoutes.POST("/slots/reset", func(c *gin.Context) {
 			config.DB.Exec("UPDATE slots SET is_booked = false, is_locked = false")
 			config.DB.Exec("DELETE FROM bookings")
+			config.DB.Exec("DELETE FROM matches")
+			config.DB.Exec("DELETE FROM match_players")
 			c.JSON(http.StatusOK, gin.H{
 				"message": "Database application state reset successfully!",
 			})

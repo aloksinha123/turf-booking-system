@@ -8,6 +8,7 @@ import { Elements } from '@stripe/react-stripe-js';
 import CheckoutForm from './CheckoutForm';
 import PaySplit from './PaySplit';
 import BookingHistory from './BookingHistory';
+import Matchmaking from './Matchmaking';
 import { jsPDF } from 'jspdf';
 
 // Initialize Stripe outside of component to avoid recreating it on every render
@@ -891,6 +892,7 @@ export default function App() {
           handleLogout={handleLogout}
           resetSystem={resetSystem}
           BookingHistory={BookingHistory}
+          Matchmaking={Matchmaking}
           API_BASE={API_BASE}
           downloadTicketPDF={downloadTicketPDF}
           triggerAlert={triggerAlert}

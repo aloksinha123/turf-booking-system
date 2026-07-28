@@ -87,6 +87,8 @@ type WebhookRequest struct {
 	Status         string `json:"status"`
 	SplitToken     string `json:"split_token"`
 	IsPrimarySplit bool   `json:"is_primary_split"`
+	MatchID        uint   `json:"match_id"`
+	UserID         uint   `json:"user_id"`
 }
 
 // HandleStripeWebhook handles official Stripe events
@@ -215,6 +217,14 @@ func HandlePaymentWebhook(c *gin.Context) {
 	}
 
 	err := config.DB.Transaction(func(tx *gorm.DB) error {
+		if req.MatchID != 0 {
+			ProcessMatchPayment(tx, req.MatchID, req.UserID)
+			c.JSON(http.StatusOK, gin.H{
+				"message": "Match payment processed successfully",
+			})
+			return nil
+		}
+
 		var booking models.Booking
 		if err := tx.Preload("Slot").Preload("User").First(&booking, req.BookingID).Error; err != nil {
 			return err
