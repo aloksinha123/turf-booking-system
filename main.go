@@ -129,6 +129,7 @@ func main() {
 		
 		// Dev/Test: Stress test & reset all slots
 		adminRoutes.POST("/api/v1/test/stress", controllers.RunStressTest)
+		adminRoutes.GET("/api/v1/test/report/export", controllers.ExportStressReportCSV)
 		adminRoutes.POST("/slots/reset", func(c *gin.Context) {
 			config.DB.Exec("UPDATE slots SET is_booked = false, is_locked = false")
 			config.DB.Exec("DELETE FROM bookings")
