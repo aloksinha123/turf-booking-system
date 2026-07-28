@@ -244,7 +244,7 @@ func RunStressTest(c *gin.Context) {
 	testTelemetryMutex.Unlock()
 
 	// Broadcast results over WebSockets
-	websockets.EmitEvent("STRESS_TEST_TELEMETRY", "admin", 0, payload)
+	websockets.EmitEvent("STRESS_TEST_TELEMETRY", "", 0, payload)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":   fmt.Sprintf("Concurrency stress test complete. %d workers hit slot #%d", req.NumWorkers, req.SlotID),

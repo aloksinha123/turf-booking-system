@@ -44,21 +44,71 @@ export default function StressDashboard({ apiBase, token, onTestComplete }) {
     }
   }, [eventLogs]);
 
+  const addLog = useCallback((type, message) => {
+    const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
+    setEventLogs(prev => {
+      const newLogs = [...prev, { timestamp, type, message, id: Date.now() + Math.random() }];
+      if (newLogs.length > 60) newLogs.shift();
+      return newLogs;
+    });
+  }, []);
+
+  const applyTelemetryUpdate = useCallback((data) => {
+    if (!data) return;
+
+    // Update Stats Cards
+    setStats({
+      activeDBConns: data.active_db_conns,
+      totalRequests: data.total_requests,
+      successful: data.successful,
+      failed: data.failed,
+      status200: data.status_200,
+      status409: data.status_409,
+      status400: data.status_400,
+      status500: data.status_500,
+      avgLatencyMs: data.avg_latency_ms ? data.avg_latency_ms.toFixed(2) : 0,
+      p50LatencyMs: data.p50_latency_ms ? data.p50_latency_ms.toFixed(2) : 0,
+      p95LatencyMs: data.p95_latency_ms ? data.p95_latency_ms.toFixed(2) : 0,
+      p99LatencyMs: data.p99_latency_ms ? data.p99_latency_ms.toFixed(2) : 0,
+      minLatencyMs: data.min_latency_ms ? data.min_latency_ms.toFixed(2) : 0,
+      maxLatencyMs: data.max_latency_ms ? data.max_latency_ms.toFixed(2) : 0,
+      rps: data.rps ? data.rps.toFixed(1) : 0,
+      oneBookingSuccessPassed: data.one_booking_success_passed,
+      auditReportSummary: data.audit_report_summary || ''
+    });
+
+    // Update Chart
+    setChartData(prev => {
+      const newData = [...prev, {
+        time: new Date().toLocaleTimeString('en-US', { hour12: false }),
+        p50: data.p50_latency_ms,
+        p95: data.p95_latency_ms,
+        p99: data.p99_latency_ms,
+        connections: data.active_db_conns,
+        rps: data.rps
+      }];
+      if (newData.length > 20) newData.shift();
+      return newData;
+    });
+
+    // Detailed Event Logs
+    addLog('STRESS_RESULT', `Burst Result: ${data.total_requests} Workers | RPS: ${data.rps?.toFixed(1)} | P95: ${data.p95_latency_ms?.toFixed(2)}ms | 200 OK: ${data.status_200} | 409 Conflict: ${data.status_409}`);
+    
+    if (data.status_409 > 0) {
+      addLog('ROW_LOCK', `ROW_LOCK_CONTENTION: ${data.status_409} concurrent requests blocked by SELECT FOR UPDATE lock`);
+    }
+    if (data.status_200 > 0) {
+      addLog('TX_COMMIT', `TX_COMMIT_SUCCESS: ${data.status_200} atomic transaction(s) committed safely`);
+    }
+  }, [addLog]);
+
   useEffect(() => {
-    const wsUrl = apiBase.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
+    const rawWs = apiBase.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
+    const wsUrl = token ? `${rawWs}?token=${token}` : rawWs;
     
     let ws = null;
     let reconnectTimeout = null;
     let reconnectAttempts = 0;
-
-    const addLog = (type, message) => {
-      const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
-      setEventLogs(prev => {
-        const newLogs = [...prev, { timestamp, type, message, id: Date.now() + Math.random() }];
-        if (newLogs.length > 60) newLogs.shift();
-        return newLogs;
-      });
-    };
 
     const connect = () => {
       ws = new WebSocket(wsUrl);
@@ -75,52 +125,7 @@ export default function StressDashboard({ apiBase, token, onTestComplete }) {
           const payload = JSON.parse(event.data);
           
           if (payload.type === "STRESS_TEST_TELEMETRY" && payload.payload) {
-            const data = payload.payload;
-            
-            // Update Stats Cards
-            setStats({
-              activeDBConns: data.active_db_conns,
-              totalRequests: data.total_requests,
-              successful: data.successful,
-              failed: data.failed,
-              status200: data.status_200,
-              status409: data.status_409,
-              status400: data.status_400,
-              status500: data.status_500,
-              avgLatencyMs: data.avg_latency_ms ? data.avg_latency_ms.toFixed(2) : 0,
-              p50LatencyMs: data.p50_latency_ms ? data.p50_latency_ms.toFixed(2) : 0,
-              p95LatencyMs: data.p95_latency_ms ? data.p95_latency_ms.toFixed(2) : 0,
-              p99LatencyMs: data.p99_latency_ms ? data.p99_latency_ms.toFixed(2) : 0,
-              minLatencyMs: data.min_latency_ms ? data.min_latency_ms.toFixed(2) : 0,
-              maxLatencyMs: data.max_latency_ms ? data.max_latency_ms.toFixed(2) : 0,
-              rps: data.rps ? data.rps.toFixed(1) : 0,
-              oneBookingSuccessPassed: data.one_booking_success_passed,
-              auditReportSummary: data.audit_report_summary || ''
-            });
-
-            // Update Chart
-            setChartData(prev => {
-              const newData = [...prev, {
-                time: new Date().toLocaleTimeString('en-US', { hour12: false }),
-                p50: data.p50_latency_ms,
-                p95: data.p95_latency_ms,
-                p99: data.p99_latency_ms,
-                connections: data.active_db_conns,
-                rps: data.rps
-              }];
-              if (newData.length > 20) newData.shift();
-              return newData;
-            });
-
-            // Detailed Event Logs
-            addLog('STRESS_RESULT', `Burst Result: ${data.total_requests} Workers | RPS: ${data.rps?.toFixed(1)} | P95: ${data.p95_latency_ms?.toFixed(2)}ms | 200 OK: ${data.status_200} | 409 Conflict: ${data.status_409}`);
-            
-            if (data.status_409 > 0) {
-              addLog('ROW_LOCK', `ROW_LOCK_CONTENTION: ${data.status_409} concurrent requests blocked by SELECT FOR UPDATE lock`);
-            }
-            if (data.status_200 > 0) {
-              addLog('TX_COMMIT', `TX_COMMIT_SUCCESS: ${data.status_200} atomic transaction(s) committed safely`);
-            }
+            applyTelemetryUpdate(payload.payload);
           }
         } catch (e) {
           console.error("Failed to parse websocket message", e);
@@ -144,16 +149,11 @@ export default function StressDashboard({ apiBase, token, onTestComplete }) {
       if (ws) ws.close();
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
-  }, [apiBase]);
+  }, [apiBase, token, applyTelemetryUpdate, addLog]);
 
   const triggerStressTest = async () => {
     setIsTriggering(true);
-    setEventLogs(prev => [...prev, { 
-      timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }), 
-      type: 'TRIGGER', 
-      message: `Launching ${numWorkers}x Goroutine Workers → Scenario: ${scenario.toUpperCase()} | Mode: ${mode.toUpperCase()} | Slot #${slotId}...`, 
-      id: Date.now() 
-    }]);
+    addLog('TRIGGER', `Launching ${numWorkers}x Goroutine Workers → Scenario: ${scenario.toUpperCase()} | Mode: ${mode.toUpperCase()} | Slot #${slotId}...`);
     
     try {
       const response = await fetchApi(`${apiBase}/admin/api/v1/test/stress`, {
@@ -169,17 +169,17 @@ export default function StressDashboard({ apiBase, token, onTestComplete }) {
           mode
         })
       });
-      if (response.ok && onTestComplete) {
-        onTestComplete();
+
+      if (response.ok) {
+        const resData = await response.json();
+        if (resData && resData.telemetry) {
+          applyTelemetryUpdate(resData.telemetry);
+        }
+        if (onTestComplete) onTestComplete();
       }
     } catch (err) {
       console.error("Stress test request failed:", err);
-      setEventLogs(prev => [...prev, { 
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }), 
-        type: 'ERROR', 
-        message: `Stress test API call failed: ${err.message}`, 
-        id: Date.now() 
-      }]);
+      addLog('ERROR', `Stress test API call failed: ${err.message}`);
     } finally {
       setIsTriggering(false);
     }
