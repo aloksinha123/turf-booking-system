@@ -266,6 +266,23 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
     return () => ws.close();
   }, []);
 
+  // Slot selection handlers for Bulk operations
+  const handleToggleSlotSelect = (slotId) => {
+    if (selectedSlotIDs.includes(slotId)) {
+      setSelectedSlotIDs(selectedSlotIDs.filter(id => id !== slotId));
+    } else {
+      setSelectedSlotIDs([...selectedSlotIDs, slotId]);
+    }
+  };
+
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      setSelectedSlotIDs(slots.map(s => s.id));
+    } else {
+      setSelectedSlotIDs([]);
+    }
+  };
+
   // CSV Data Export Handler
   const handleExportBookingsCSV = () => {
     let url = `${apiBase}/admin/export/bookings?status=${statusFilter}`;
@@ -1093,6 +1110,14 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
             <table className="w-full text-sm text-left">
               <thead>
                 <tr className="text-[9px] font-black text-slate-500 uppercase tracking-wider border-b border-slate-200 bg-slate-50 sticky top-0 z-10">
+                  <th scope="col" className="px-4 py-3 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      onChange={handleSelectAll}
+                      checked={slots.length > 0 && selectedSlotIDs.length === slots.length}
+                      className="w-4 h-4 rounded text-indigo-600 accent-indigo-600 cursor-pointer"
+                    />
+                  </th>
                   <th scope="col" className="px-4 py-3">Slot ID</th>
                   <th scope="col" className="px-4 py-3">Timing</th>
                   <th scope="col" className="px-4 py-3">Turf Name</th>
@@ -1105,7 +1130,7 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
               <tbody>
                 {slots.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center">
+                    <td colSpan={8} className="px-4 py-12 text-center">
                       <div className="flex flex-col items-center gap-2 text-slate-600">
                         <svg className="w-8 h-8 text-slate-700" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>
                         <span className="text-[10px] font-black uppercase tracking-wider">No slots generated</span>
@@ -1128,6 +1153,16 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
 
                     return (
                       <tr key={slot.id} className="border-b border-slate-200 hover:bg-slate-50 transition-colors group">
+                        {/* Selection Checkbox */}
+                        <td className="px-4 py-3.5 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedSlotIDs.includes(slot.id)}
+                            onChange={() => handleToggleSlotSelect(slot.id)}
+                            className="w-4 h-4 rounded text-indigo-600 accent-indigo-600 cursor-pointer"
+                          />
+                        </td>
+
                         {/* Slot ID */}
                         <td className="px-4 py-3.5 font-black text-slate-900 text-xs whitespace-nowrap">
                           <span className="text-slate-600">#</span>{String(slot.id).padStart(3, '0')}
