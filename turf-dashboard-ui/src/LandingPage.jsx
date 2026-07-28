@@ -13,6 +13,7 @@ export default function LandingPage({
   setActiveTab,
   modifiers,
   user,
+  token,
   handleLogout,
   resetSystem,
   BookingHistory,
@@ -116,9 +117,9 @@ export default function LandingPage({
 
       {/* Main Content Area */}
       {mainNavTab === 'history' ? (
-        <BookingHistory apiBase={API_BASE} token={user?.token} downloadTicketPDF={downloadTicketPDF} triggerAlert={triggerAlert} /> 
+        <BookingHistory apiBase={API_BASE} token={token || localStorage.getItem('token')} downloadTicketPDF={downloadTicketPDF} triggerAlert={triggerAlert} /> 
       ) : mainNavTab === 'matchmaking' && Matchmaking ? (
-        <Matchmaking apiBase={API_BASE} token={user?.token} user={user} triggerAlert={triggerAlert} />
+        <Matchmaking apiBase={API_BASE} token={token || localStorage.getItem('token')} user={user} triggerAlert={triggerAlert} />
       ) : (
       <>
       {/* Hero Section */}

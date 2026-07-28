@@ -889,6 +889,7 @@ export default function App() {
           setActiveTab={setActiveTab}
           modifiers={modifiers}
           user={user}
+          token={token}
           handleLogout={handleLogout}
           resetSystem={resetSystem}
           BookingHistory={BookingHistory}
