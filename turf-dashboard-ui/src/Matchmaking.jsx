@@ -76,7 +76,7 @@ export default function Matchmaking({ apiBase, token, user, triggerAlert }) {
       const res = await fetch(`${apiBase}/slots/available?turf_id=1&date=${today}`);
       const data = await res.json();
       if (res.ok) {
-        setAvailableSlots(data || []);
+        setAvailableSlots(data?.slots || (Array.isArray(data) ? data : []));
       }
     } catch (err) {
       triggerAlert('Failed to load available slots', true);
@@ -233,7 +233,7 @@ export default function Matchmaking({ apiBase, token, user, triggerAlert }) {
   };
 
   // Helper getters
-  const selectedSlot = availableSlots.find((s) => s.id === parseInt(formSlotId));
+  const selectedSlot = Array.isArray(availableSlots) ? availableSlots.find((s) => s.id === parseInt(formSlotId)) : null;
   const calculatedPrice = selectedSlot ? (selectedSlot.base_price / formRequiredPlayers).toFixed(2) : 0;
 
   return (
@@ -483,7 +483,7 @@ export default function Matchmaking({ apiBase, token, user, triggerAlert }) {
                     className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500 cursor-pointer"
                   >
                     <option value="">-- Choose a Slot --</option>
-                    {availableSlots.map((slot) => (
+                    {(Array.isArray(availableSlots) ? availableSlots : []).map((slot) => (
                       <option key={slot.id} value={slot.id}>
                         {slot.date} ({slot.start_time} - {slot.end_time}) — ₹{slot.base_price}
                       </option>
