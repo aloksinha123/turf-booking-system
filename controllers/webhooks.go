@@ -71,11 +71,11 @@ func checkAndFinalizeSplit(db *gorm.DB, booking *models.Booking) {
 
 			// Broadcast real-time slot update to all connected WebSocket clients
 			go func() {
-				websockets.GlobalHub.Broadcast <- map[string]interface{}{
+				websockets.EmitEvent("SLOT_UPDATED", "", 0, gin.H{
 					"event":   "slot_update",
 					"slot_id": booking.SlotID,
 					"turf_id": booking.Slot.TurfID,
-				}
+				})
 			}()
 			return nil
 		})
@@ -131,10 +131,10 @@ func HandleStripeWebhook(c *gin.Context) {
 				
 				// Broadcast split progress update to the host
 				go func() {
-					websockets.GlobalHub.Broadcast <- map[string]interface{}{
+					websockets.EmitEvent("SPLIT_UPDATED", "", 0, gin.H{
 						"event":      "split_update",
 						"booking_id": booking.ID,
-					}
+					})
 				}()
 			} else if event.Data.Object.Metadata.IsPrimarySplit == "true" {
 				// Primary user paid their share
@@ -149,47 +149,47 @@ func HandleStripeWebhook(c *gin.Context) {
 					config.DB.Save(&booking.Slot)
 
 					go func() {
-						websockets.GlobalHub.Broadcast <- map[string]interface{}{
+						websockets.EmitEvent("SLOT_UPDATED", "", 0, gin.H{
 							"event":   "slot_update",
 							"slot_id": booking.SlotID,
 							"turf_id": booking.Slot.TurfID,
-						}
+						})
 					}()
 				}
 
 				// Wait for others
 				checkAndFinalizeSplit(nil, &booking)
-		} else {
-			// Payment succeeded for a normal (non-split) booking
-			booking.Status = "confirmed"
-			booking.Slot.HoldExpiresAt = nil
-			booking.Slot.IsBooked = true
-			
-			if booking.IsMatchmaking {
-				booking.Slot.MatchmakingStatus = "open_for_players"
-				booking.Slot.RequiredPlayers = 10
-				booking.Slot.CurrentPlayers = 1
-				booking.Slot.IsBooked = false
-			} else if booking.IsMatchmakingJoin {
-				booking.Slot.CurrentPlayers += 1
-				if booking.Slot.CurrentPlayers >= booking.Slot.RequiredPlayers {
-					booking.Slot.IsBooked = true
-					booking.Slot.MatchmakingStatus = "closed"
-				} else {
+			} else {
+				// Normal full booking payment succeeded
+				booking.Status = "confirmed"
+				booking.Slot.HoldExpiresAt = nil
+				booking.Slot.IsBooked = true
+				
+				if booking.IsMatchmaking {
+					booking.Slot.MatchmakingStatus = "open_for_players"
+					booking.Slot.RequiredPlayers = 10
+					booking.Slot.CurrentPlayers = 1
 					booking.Slot.IsBooked = false
+				} else if booking.IsMatchmakingJoin {
+					booking.Slot.CurrentPlayers += 1
+					if booking.Slot.CurrentPlayers >= booking.Slot.RequiredPlayers {
+						booking.Slot.IsBooked = true
+						booking.Slot.MatchmakingStatus = "closed"
+					} else {
+						booking.Slot.IsBooked = false
+					}
 				}
-			}
 
 			config.DB.Save(&booking.Slot)
 			config.DB.Save(&booking)
 
 			// Broadcast real-time update
 			go func() {
-				websockets.GlobalHub.Broadcast <- map[string]interface{}{
+				websockets.EmitEvent("SLOT_UPDATED", "", 0, gin.H{
 					"event":   "slot_update",
 					"slot_id": booking.SlotID,
 					"turf_id": booking.Slot.TurfID,
-				}
+				})
 			}()
 			// Fire WhatsApp Invoice
 			services.SendBookingInvoice(&booking)
@@ -238,10 +238,10 @@ func HandlePaymentWebhook(c *gin.Context) {
 				
 				// Broadcast split progress update to the host
 				go func() {
-					websockets.GlobalHub.Broadcast <- map[string]interface{}{
+					websockets.EmitEvent("SPLIT_UPDATED", "", 0, gin.H{
 						"event":      "split_update",
 						"booking_id": booking.ID,
-					}
+					})
 				}()
 			} else if req.IsPrimarySplit {
 				// Primary user paid their share
@@ -256,11 +256,11 @@ func HandlePaymentWebhook(c *gin.Context) {
 					tx.Save(&booking.Slot)
 
 					go func() {
-						websockets.GlobalHub.Broadcast <- map[string]interface{}{
+						websockets.EmitEvent("SLOT_UPDATED", "", 0, gin.H{
 							"event":   "slot_update",
 							"slot_id": booking.SlotID,
 							"turf_id": booking.Slot.TurfID,
-						}
+						})
 					}()
 				}
 
@@ -288,11 +288,11 @@ func HandlePaymentWebhook(c *gin.Context) {
 
 				// Broadcast real-time slot update to all connected WebSocket clients
 				go func() {
-					websockets.GlobalHub.Broadcast <- map[string]interface{}{
+					websockets.EmitEvent("SLOT_UPDATED", "", 0, gin.H{
 						"event":   "slot_update",
 						"slot_id": booking.SlotID,
 						"turf_id": booking.Slot.TurfID,
-					}
+					})
 				}()
 				services.SendBookingInvoice(&booking)
 			}

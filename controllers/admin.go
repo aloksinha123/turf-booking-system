@@ -49,27 +49,24 @@ func ForceReleaseSlot(c *gin.Context) {
 		waitlistedUser.Status = "notified"
 		tx.Save(&waitlistedUser)
 
-		websockets.GlobalHub.Broadcast <- map[string]interface{}{
-			"type":    "WAITLIST_TURN",
+		websockets.EmitEvent("WAITLIST_TURN", "", waitlistedUser.UserID, gin.H{
 			"slot_id": slot.ID,
 			"user_id": waitlistedUser.UserID,
-		}
+		})
 	}
 
 	tx.Commit()
 
 	// Broadcast globally that it is available
-	websockets.GlobalHub.Broadcast <- map[string]interface{}{
-		"type":    "SLOT_UPDATE",
+	websockets.EmitEvent("SLOT_UPDATED", "", 0, gin.H{
 		"slot_id": slot.ID,
 		"status":  "available",
-	}
+	})
 	
 	// Broadcast to the user who was holding it that their cart was forcefully emptied
-	websockets.GlobalHub.Broadcast <- map[string]interface{}{
-		"type":    "CART_EXPIRED",
+	websockets.EmitEvent("CART_EXPIRED", "", 0, gin.H{
 		"slot_id": slot.ID,
-	}
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": fmt.Sprintf("Slot #%d forcefully released.", slot.ID),
@@ -100,11 +97,10 @@ func ExtendSlotHold(c *gin.Context) {
 	}
 
 	// Push update so admin UI resets its timer locally (if we have one) or just reloads
-	websockets.GlobalHub.Broadcast <- map[string]interface{}{
-		"type":    "SLOT_UPDATE",
+	websockets.EmitEvent("SLOT_UPDATED", "", 0, gin.H{
 		"slot_id": slot.ID,
 		"status":  "extended",
-	}
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": fmt.Sprintf("Hold on Slot #%d extended by 5 minutes.", slot.ID),

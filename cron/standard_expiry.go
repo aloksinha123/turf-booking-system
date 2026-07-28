@@ -3,6 +3,7 @@ package cron
 import (
 	"fmt"
 	"time"
+	"github.com/gin-gonic/gin"
 	"turf-booking-system/config"
 	"turf-booking-system/models"
 	"turf-booking-system/websockets"
@@ -55,11 +56,10 @@ func processExpiredHolds() {
 			tx.Save(&waitlistedUser)
 
 			// Fire a special WebSocket event to that user
-			websockets.GlobalHub.Broadcast <- map[string]interface{}{
-				"type":    "WAITLIST_TURN",
+			websockets.EmitEvent("WAITLIST_TURN", "", waitlistedUser.UserID, gin.H{
 				"slot_id": slot.ID,
 				"user_id": waitlistedUser.UserID,
-			}
+			})
 			fmt.Printf("[CRON] 🛎️ Waitlist triggered for Slot #%d to User #%d\n", slot.ID, waitlistedUser.UserID)
 		}
 
@@ -68,10 +68,9 @@ func processExpiredHolds() {
 		fmt.Printf("[CRON] 🗑️ Automatically released expired 10-min hold for Slot #%d\n", slot.ID)
 
 		// Broadcast to everyone that the slot is now open
-		websockets.GlobalHub.Broadcast <- map[string]interface{}{
-			"type":    "SLOT_UPDATE",
+		websockets.EmitEvent("SLOT_UPDATED", "", 0, gin.H{
 			"slot_id": slot.ID,
 			"status":  "available",
-		}
+		})
 	}
 }

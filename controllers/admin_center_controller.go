@@ -235,9 +235,7 @@ func BulkSlotGeneration(c *gin.Context) {
 
 	// Broadcast WS update
 	go func() {
-		websockets.GlobalHub.Broadcast <- map[string]interface{}{
-			"event": "slots_updated",
-		}
+		websockets.EmitEvent("SLOT_UPDATED", "", 0, gin.H{"event": "slots_updated"})
 	}()
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -284,9 +282,7 @@ func BulkEditSlotPrice(c *gin.Context) {
 	LogAdminActivity(c, "BULK_PRICE_EDIT", fmt.Sprintf("Price ₹%.0f", req.NewPrice), fmt.Sprintf("Updated %d slots", result.RowsAffected))
 
 	go func() {
-		websockets.GlobalHub.Broadcast <- map[string]interface{}{
-			"event": "slots_updated",
-		}
+		websockets.EmitEvent("PRICE_CHANGED", "", 0, gin.H{"event": "slots_updated", "new_price": req.NewPrice})
 	}()
 
 	c.JSON(http.StatusOK, gin.H{
@@ -317,9 +313,7 @@ func BulkLockSlots(c *gin.Context) {
 	LogAdminActivity(c, actionStr, fmt.Sprintf("%d slots", len(req.SlotIDs)), fmt.Sprintf("Updated %d slots", result.RowsAffected))
 
 	go func() {
-		websockets.GlobalHub.Broadcast <- map[string]interface{}{
-			"event": "slots_updated",
-		}
+		websockets.EmitEvent("SLOT_UPDATED", "", 0, gin.H{"event": "slots_updated", "is_locked": req.IsLocked})
 	}()
 
 	c.JSON(http.StatusOK, gin.H{
@@ -354,11 +348,11 @@ func ToggleMaintenanceMode(c *gin.Context) {
 	LogAdminActivity(c, "TOGGLE_MAINTENANCE", fmt.Sprintf("Maintenance=%s", valStr), req.Reason)
 
 	go func() {
-		websockets.GlobalHub.Broadcast <- map[string]interface{}{
+		websockets.EmitEvent("SYSTEM_MAINTENANCE", "", 0, gin.H{
 			"event":          "maintenance_update",
 			"is_maintenance": req.IsMaintenance,
 			"reason":         req.Reason,
-		}
+		})
 	}()
 
 	c.JSON(http.StatusOK, gin.H{

@@ -161,11 +161,11 @@ func CreateMatch(c *gin.Context) {
 
 		// Broadcast real-time update
 		go func() {
-			websockets.GlobalHub.Broadcast <- map[string]interface{}{
+			websockets.EmitEvent("MATCHMAKING_UPDATED", "", 0, gin.H{
 				"event":    "match_created",
 				"match_id": match.ID,
 				"slot_id":  slot.ID,
-			}
+			})
 		}()
 
 		c.JSON(http.StatusCreated, gin.H{
@@ -342,14 +342,14 @@ func JoinMatch(c *gin.Context) {
 
 		// Broadcast real-time update
 		go func() {
-			websockets.GlobalHub.Broadcast <- map[string]interface{}{
+			websockets.EmitEvent("MATCHMAKING_UPDATED", "", 0, gin.H{
 				"event":           "match_update",
 				"match_id":        match.ID,
 				"current_players": match.CurrentPlayers,
 				"status":          match.Status,
 				"player_name":     "",
 				"action":          "joined",
-			}
+			})
 		}()
 
 		c.JSON(http.StatusOK, gin.H{
@@ -449,23 +449,23 @@ func LeaveMatch(c *gin.Context) {
 
 			// Notify the promoted player
 			go func() {
-				websockets.GlobalHub.Broadcast <- map[string]interface{}{
+				websockets.EmitEvent("MATCHMAKING_UPDATED", "", waitlisted.UserID, gin.H{
 					"event":    "match_waitlist_promoted",
 					"match_id": match.ID,
 					"user_id":  waitlisted.UserID,
-				}
+				})
 			}()
 		}
 
 		// Broadcast update
 		go func() {
-			websockets.GlobalHub.Broadcast <- map[string]interface{}{
+			websockets.EmitEvent("MATCHMAKING_UPDATED", "", 0, gin.H{
 				"event":           "match_update",
 				"match_id":        match.ID,
 				"current_players": match.CurrentPlayers,
 				"status":          match.Status,
 				"action":          "left",
-			}
+			})
 		}()
 
 		c.JSON(http.StatusOK, gin.H{
@@ -555,11 +555,11 @@ func CancelMatch(c *gin.Context) {
 
 		// Broadcast
 		go func() {
-			websockets.GlobalHub.Broadcast <- map[string]interface{}{
+			websockets.EmitEvent("MATCHMAKING_UPDATED", "", 0, gin.H{
 				"event":    "match_cancelled",
 				"match_id": match.ID,
 				"slot_id":  match.SlotID,
-			}
+			})
 		}()
 
 		c.JSON(http.StatusOK, gin.H{
@@ -635,14 +635,14 @@ func ProcessMatchPayment(tx *gorm.DB, matchID uint, userID uint) {
 
 	// Broadcast update
 	go func() {
-		websockets.GlobalHub.Broadcast <- map[string]interface{}{
+		websockets.EmitEvent("MATCHMAKING_UPDATED", "", 0, gin.H{
 			"event":           "match_update",
 			"match_id":        match.ID,
 			"current_players": match.CurrentPlayers,
 			"paid_count":      paidCount,
 			"status":          match.Status,
 			"action":          "payment",
-		}
+		})
 	}()
 }
 
@@ -746,11 +746,11 @@ func AdminCancelMatch(c *gin.Context) {
 		}
 
 		go func() {
-			websockets.GlobalHub.Broadcast <- map[string]interface{}{
+			websockets.EmitEvent("MATCHMAKING_UPDATED", "", 0, gin.H{
 				"event":    "match_cancelled",
 				"match_id": match.ID,
 				"slot_id":  match.SlotID,
-			}
+			})
 		}()
 
 		c.JSON(http.StatusOK, gin.H{

@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import PriceBreakdownModal from './PriceBreakdownModal';
+import { useWebSocket } from './useWebSocket';
+import ToastContainer from './ToastContainer';
 
 export default function LandingPage({
   slots,
@@ -36,6 +38,12 @@ export default function LandingPage({
       .catch(() => {});
   }, [API_BASE]);
 
+  const wsUrl = `ws://localhost:8085/ws`;
+  const { status: wsStatus, onlineCount, toasts, removeToast } = useWebSocket({
+    wsUrl,
+    token,
+  });
+
   // Helper to check availability per turf
   // Turf A = ID 1 (Football), Turf B = ID 2 (Cricket), Turf C = ID 3 (Badminton)
   const getTurfStatus = (turfId) => {
@@ -52,6 +60,7 @@ export default function LandingPage({
 
   return (
     <div className="min-h-screen bg-[#0b0f19] text-white relative overflow-hidden font-sans">
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
       {/* Premium Gradient Background Accents */}
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-gradient-to-tr from-emerald-500/10 to-indigo-500/0 rounded-full blur-[120px] pointer-events-none"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-gradient-to-br from-purple-500/10 to-orange-500/0 rounded-full blur-[120px] pointer-events-none"></div>
@@ -87,6 +96,28 @@ export default function LandingPage({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Real-time WS Status Pill */}
+            <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-300">
+              {wsStatus === 'connected' ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span className="text-emerald-400">🟢 Live</span>
+                  <span className="text-slate-600">|</span>
+                  <span>👥 {onlineCount} Online</span>
+                </>
+              ) : wsStatus === 'reconnecting' ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                  <span className="text-amber-300">🟡 Connecting...</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+                  <span className="text-rose-400">🔴 Polling Fallback</span>
+                </>
+              )}
+            </div>
+
             <button 
               onClick={() => setMainNavTab('booking')}
               className={`text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm cursor-pointer border ${

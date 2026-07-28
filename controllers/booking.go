@@ -213,6 +213,14 @@ func CreateBooking(c *gin.Context) {
 			}
 		}
 
+		// Emit WSEvent
+		websockets.EmitEvent("BOOKING_CREATED", "admin", 0, gin.H{
+			"booking_id": booking.ID,
+			"slot_id":    booking.SlotID,
+			"user_id":    booking.UserID,
+			"amount":     booking.FinalAmount,
+		})
+
 		c.JSON(http.StatusCreated, gin.H{
 			"message":         "Slot held successfully. Please complete payment.",
 			"booking_details": booking,
@@ -330,11 +338,10 @@ func CancelBooking(c *gin.Context) {
 		}
 
 		// Broadcast to WebSockets
-		websockets.GlobalHub.Broadcast <- map[string]interface{}{
-			"type":    "SLOT_UPDATE",
+		websockets.EmitEvent("SLOT_UPDATED", "", 0, gin.H{
 			"slot_id": booking.SlotID,
 			"status":  "available",
-		}
+		})
 
 		return nil
 	})

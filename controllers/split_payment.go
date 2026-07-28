@@ -159,10 +159,10 @@ func DeclineSplitInvite(c *gin.Context) {
 
 	// Broadcast real-time slot update to all connected WebSocket clients
 	go func() {
-		websockets.GlobalHub.Broadcast <- map[string]interface{}{
+		websockets.EmitEvent("SPLIT_UPDATED", "", 0, gin.H{
 			"event":      "split_update",
 			"booking_id": split.BookingID,
-		}
+		})
 	}()
 
 	c.JSON(http.StatusOK, gin.H{"message": "Invitation declined successfully"})

@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"github.com/gin-gonic/gin"
 	"turf-booking-system/config"
 	"turf-booking-system/models"
 	"turf-booking-system/websockets"
@@ -104,11 +105,11 @@ func processExpiredMatches() {
 
 		// Broadcast WS update
 		go func() {
-			websockets.GlobalHub.Broadcast <- map[string]interface{}{
+			websockets.EmitEvent("MATCHMAKING_UPDATED", "", 0, gin.H{
 				"event":    "match_expired",
 				"match_id": match.ID,
 				"slot_id":  match.SlotID,
-			}
+			})
 		}()
 	}
 }

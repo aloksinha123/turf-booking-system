@@ -7,6 +7,7 @@ import (
 	"turf-booking-system/config"
 	"turf-booking-system/models"
 	"turf-booking-system/services"
+	"turf-booking-system/websockets"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm/clause"
@@ -131,6 +132,12 @@ func ToggleSlotLock(c *gin.Context) {
 	slot.IsLocked = !slot.IsLocked
 	config.DB.Save(&slot)
 
+	websockets.EmitEvent("SLOT_UPDATED", "", 0, gin.H{
+		"slot_id":   slot.ID,
+		"is_locked": slot.IsLocked,
+		"slot":      slot,
+	})
+
 	c.JSON(http.StatusOK, gin.H{"message": "Slot lock toggled", "is_locked": slot.IsLocked})
 }
 
@@ -154,6 +161,11 @@ func UpdatePricingMultiplier(c *gin.Context) {
 
 	GlobalPricingMultiplier = req.Multiplier
 	services.AdminGlobalMultiplier = req.Multiplier
+
+	websockets.EmitEvent("PRICE_CHANGED", "", 0, gin.H{
+		"multiplier": req.Multiplier,
+	})
+
 	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Global pricing multiplier updated to %.2fx", req.Multiplier), "multiplier": req.Multiplier})
 }
 

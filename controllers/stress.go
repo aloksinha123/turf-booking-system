@@ -113,7 +113,7 @@ func RunStressTest(c *gin.Context) {
 	}
 
 	// Broadcast metrics to WebSocket clients
-	websockets.GlobalHub.Broadcast <- payload
+	websockets.EmitEvent("STRESS_TEST_TELEMETRY", "admin", 0, payload)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": fmt.Sprintf("Stress test complete. %d workers hit slot %d", numWorkers, req.SlotID),

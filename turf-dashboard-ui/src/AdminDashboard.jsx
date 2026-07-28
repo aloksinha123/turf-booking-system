@@ -1,6 +1,8 @@
 import { fetchApi } from './apiClient';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import StressDashboard from './StressDashboard';
+import { useWebSocket } from './useWebSocket';
+import ToastContainer from './ToastContainer';
 
 export default function AdminDashboard({ apiBase, triggerAlert, token }) {
   const [multiplier, setMultiplier] = useState(1.0);
@@ -247,24 +249,49 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
     loadAdminData();
   }, [apiBase, selectedDate, analyticsRange, statusFilter, startDateFilter, endDateFilter]);
 
-  // WebSocket Telemetry Listener for Live Dashboard Updates
-  useEffect(() => {
-    const ws = new WebSocket(`ws://localhost:8085/ws`);
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (
-          data.event === 'slot_update' ||
-          data.event === 'slots_updated' ||
-          data.event === 'maintenance_update' ||
-          data.event === 'match_update'
-        ) {
-          loadAdminData();
-        }
-      } catch (e) {}
-    };
-    return () => ws.close();
+  // Partial State Mutation & Typed Event Dispatcher
+  const handleWSEvent = useCallback((event) => {
+    const { type, payload } = event;
+
+    // Partial State Mutation: Update specific slot without reloading whole page
+    if (type === 'SLOT_UPDATED' && payload?.slot_id) {
+      setSlots((prevSlots) =>
+        prevSlots.map((s) => {
+          if (s.id === payload.slot_id) {
+            return {
+              ...s,
+              is_locked: payload.is_locked !== undefined ? payload.is_locked : s.is_locked,
+              is_booked: payload.status === 'booked' ? true : payload.status === 'available' ? false : s.is_booked,
+              ...(payload.slot || {}),
+            };
+          }
+          return s;
+        })
+      );
+    }
+
+    // Refresh overall analytics on major events
+    if (
+      type === 'BOOKING_CREATED' ||
+      type === 'PRICE_CHANGED' ||
+      type === 'MATCHMAKING_UPDATED' ||
+      type === 'SYSTEM_MAINTENANCE'
+    ) {
+      loadAdminData();
+    }
   }, []);
+
+  const handleFallbackPoll = useCallback(() => {
+    loadAdminData();
+  }, []);
+
+  const wsUrl = `ws://localhost:8085/ws`;
+  const { status: wsStatus, onlineCount, toasts, removeToast } = useWebSocket({
+    wsUrl,
+    token,
+    onEvent: handleWSEvent,
+    onFallbackPoll: handleFallbackPoll,
+  });
 
   // Slot selection handlers for Bulk operations
   const handleToggleSlotSelect = (slotId) => {
@@ -618,7 +645,8 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
   const revenuePeak = maxVolume > 0 ? `₹${(maxVolume * 1000).toLocaleString('en-IN')}` : '₹0';
 
   return (
-    <div className="bg-slate-50 min-h-screen font-sans">
+    <div className="bg-slate-50 min-h-screen font-sans relative">
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
       
       {/* Dark Header Section */}
       <div className="bg-slate-900 pt-8 pb-32 px-6 relative overflow-hidden">
@@ -644,15 +672,27 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
 
             {/* System Telemetry & Quick Control Tools */}
             <div className="flex flex-wrap items-center gap-3">
-              {/* System Health Telemetry Pill */}
-              {systemHealth && (
-                <div className="flex items-center gap-2 bg-slate-800/90 border border-slate-700 px-3 py-2 rounded-xl text-xs font-bold text-slate-300">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span>{systemHealth.db_status}</span>
-                  <span className="text-slate-600">|</span>
-                  <span>📡 {systemHealth.active_websocket_clients} WS</span>
-                </div>
-              )}
+              {/* WS Connection Status Pill */}
+              <div className="flex items-center gap-2 bg-slate-800/90 border border-slate-700 px-3 py-2 rounded-xl text-xs font-bold text-slate-300">
+                {wsStatus === 'connected' ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span className="text-emerald-400">🟢 Connected</span>
+                    <span className="text-slate-600">|</span>
+                    <span>👥 {onlineCount} Online</span>
+                  </>
+                ) : wsStatus === 'reconnecting' ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                    <span className="text-amber-300">🟡 Reconnecting...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+                    <span className="text-rose-400">🔴 Polling Fallback (5s)</span>
+                  </>
+                )}
+              </div>
 
               {/* CSV Export Button */}
               <button
