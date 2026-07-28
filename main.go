@@ -68,6 +68,8 @@ func main() {
 	router.GET("/api/v1/matches/:id/players", controllers.GetMatchPlayers)
 	router.POST("/api/v1/coupons/apply", controllers.ApplyCoupon)
 	router.GET("/api/v1/system/status", controllers.GetPublicSystemStatus)
+	router.GET("/api/v1/tickets/:booking_id", controllers.GetDigitalTicket)
+	router.GET("/api/v1/tickets/verify/:code", controllers.VerifyTicketByCode)
 
 	// WebSockets & Event Replay
 	router.GET("/ws", websockets.ServeWS)
@@ -114,6 +116,7 @@ func main() {
 		adminRoutes.GET("/export/bookings", controllers.ExportBookingsCSV)
 		adminRoutes.GET("/activity-logs", controllers.GetAdminActivityLogs)
 		adminRoutes.GET("/system/health", controllers.GetSystemHealth)
+		adminRoutes.GET("/finance/summary", controllers.GetFinanceSummary)
 
 		// Admin Dynamic Pricing Yield Engine Routes
 		adminRoutes.GET("/pricing-rules", controllers.AdminGetPricingRules)

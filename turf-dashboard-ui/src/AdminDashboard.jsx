@@ -49,6 +49,7 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
   const [selectedSlotIDs, setSelectedSlotIDs] = useState([]);
   const [bulkPriceModal, setBulkPriceModal] = useState({ show: false, newPrice: '800' });
   const [bulkGenModal, setBulkGenModal] = useState({ show: false, startDate: selectedDate, endDate: selectedDate, turfId: '1', basePrice: '500' });
+  const [financeSummary, setFinanceSummary] = useState(null);
 
   // Load all slots and analytics for Admin
   const loadAdminData = async () => {
@@ -154,6 +155,15 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
       if (resLogs.ok) {
         const logsData = await resLogs.json();
         setActivityLogs(logsData || []);
+      }
+
+      // Fetch Finance & Webhook Audit Ledger Summary
+      const resFinance = await fetchApi(`${apiBase}/admin/finance/summary`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resFinance.ok) {
+        const finData = await resFinance.json();
+        setFinanceSummary(finData);
       }
     } catch (err) {
       console.error("Admin fetch failed:", err);

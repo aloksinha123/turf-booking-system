@@ -40,6 +40,9 @@ func ConnectDatabase() {
 		&models.PricingAuditLog{},
 		&models.AdminActivityLog{},
 		&models.SystemSetting{},
+		&models.WebhookEvent{},
+		&models.PaymentTransaction{},
+		&models.Ticket{},
 	)
 	if err != nil {
 		log.Println("Migration Failed: ", err)

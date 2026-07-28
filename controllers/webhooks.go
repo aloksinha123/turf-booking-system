@@ -3,6 +3,7 @@ package controllers
 import (
 	"fmt"
 	"net/http"
+	"time"
 	"turf-booking-system/config"
 	"turf-booking-system/models"
 	"turf-booking-system/services"
@@ -83,6 +84,7 @@ func checkAndFinalizeSplit(db *gorm.DB, booking *models.Booking) {
 }
 
 type WebhookRequest struct {
+	EventID        string `json:"event_id"`
 	BookingID      uint   `json:"booking_id"`
 	Status         string `json:"status"`
 	SplitToken     string `json:"split_token"`
@@ -208,13 +210,39 @@ func HandleStripeWebhook(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"received": true})
 }
 
-// HandlePaymentWebhook is our old mock endpoint (fallback for local dev if Stripe CLI is not running)
+// HandlePaymentWebhook handles payment events with idempotency verification and automated QR ticket generation
 func HandlePaymentWebhook(c *gin.Context) {
 	var req WebhookRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid webhook payload"})
 		return
 	}
+
+	eventID := req.EventID
+	if eventID == "" {
+		eventID = fmt.Sprintf("evt_mock_%d_%d", req.BookingID, time.Now().UnixNano())
+	}
+
+	// 1. Idempotency Check: Prevent duplicate webhook processing
+	var existingEvent models.WebhookEvent
+	if err := config.DB.Where("event_id = ?", eventID).First(&existingEvent).Error; err == nil {
+		fmt.Printf("[WEBHOOK ENGINE] 🛑 Duplicate event #%s skipped via idempotency check.\n", eventID)
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Duplicate webhook event skipped (Idempotency verified 🟢)",
+			"status":  "duplicate_skipped",
+		})
+		return
+	}
+
+	// Record incoming webhook event
+	webhookRecord := models.WebhookEvent{
+		EventID:     eventID,
+		EventType:   "payment.updated",
+		Status:      "processed",
+		Payload:     fmt.Sprintf("BookingID: %d, Status: %s", req.BookingID, req.Status),
+		ProcessedAt: time.Now(),
+	}
+	config.DB.Create(&webhookRecord)
 
 	err := config.DB.Transaction(func(tx *gorm.DB) error {
 		if req.MatchID != 0 {
@@ -295,11 +323,42 @@ func HandlePaymentWebhook(c *gin.Context) {
 					})
 				}()
 				services.SendBookingInvoice(&booking)
+
+				// Generate Automated Digital Ticket & Unique QR Code
+				services.GenerateDigitalTicket(booking.ID)
+
+				// Log Payment Transaction Ledger
+				txRecord := models.PaymentTransaction{
+					BookingID:             booking.ID,
+					UserID:                booking.UserID,
+					StripePaymentIntentID: fmt.Sprintf("pi_%s", eventID),
+					Amount:                booking.FinalAmount,
+					Currency:              "INR",
+					Status:                "succeeded",
+					PaymentMethod:         "card",
+					Timeline:              "Created -> Processing -> Succeeded",
+					CreatedAt:             time.Now(),
+				}
+				tx.Create(&txRecord)
 			}
 		} else {
 			if req.SplitToken == "" && !req.IsPrimarySplit {
 				booking.Status = "failed"
 				booking.Slot.HoldExpiresAt = nil
+
+				// Log Failed Payment Transaction Ledger
+				txRecord := models.PaymentTransaction{
+					BookingID:             booking.ID,
+					UserID:                booking.UserID,
+					StripePaymentIntentID: fmt.Sprintf("pi_failed_%s", eventID),
+					Amount:                booking.FinalAmount,
+					Currency:              "INR",
+					Status:                "failed",
+					PaymentMethod:         "card",
+					Timeline:              "Created -> Processing -> Failed",
+					CreatedAt:             time.Now(),
+				}
+				tx.Create(&txRecord)
 			}
 		}
 
@@ -312,7 +371,8 @@ func HandlePaymentWebhook(c *gin.Context) {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"message": "Webhook processed successfully",
+			"message":        "Webhook processed successfully (Idempotency verified 🟢)",
+			"event_id":       eventID,
 			"booking_status": booking.Status,
 		})
 

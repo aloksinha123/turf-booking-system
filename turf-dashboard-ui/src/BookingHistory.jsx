@@ -5,6 +5,18 @@ export default function BookingHistory({ apiBase, token, downloadTicketPDF, trig
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [selectedTicket, setSelectedTicket] = useState(null);
+
+  const handleViewQRTicket = async (bookingId) => {
+    try {
+      const res = await fetchApi(`${apiBase}/api/v1/tickets/${bookingId}`);
+      if (!res.ok) throw new Error('Failed to load digital ticket');
+      const data = await res.json();
+      setSelectedTicket(data);
+    } catch (err) {
+      if (triggerAlert) triggerAlert(err.message, true);
+    }
+  };
 
   useEffect(() => {
     fetchBookings();
@@ -223,12 +235,20 @@ export default function BookingHistory({ apiBase, token, downloadTicketPDF, trig
 
                 <div className="p-4 bg-white flex justify-end gap-3 border-t border-slate-100 rounded-b-2xl">
                   {isConfirmed && (
-                    <button 
-                      onClick={() => handleDownload(booking)}
-                      className="text-xs font-black uppercase text-[#10b981] hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-4 py-2 rounded-lg transition-colors border border-emerald-100 flex items-center gap-2"
-                    >
-                      <span>📥</span> Download Ticket
-                    </button>
+                    <>
+                      <button 
+                        onClick={() => handleViewQRTicket(booking.id)}
+                        className="text-xs font-black uppercase text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-4 py-2 rounded-lg transition-colors border border-indigo-100 flex items-center gap-2 cursor-pointer shadow-sm"
+                      >
+                        <span>🎟️</span> View QR Ticket
+                      </button>
+                      <button 
+                        onClick={() => handleDownload(booking)}
+                        className="text-xs font-black uppercase text-[#10b981] hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-4 py-2 rounded-lg transition-colors border border-emerald-100 flex items-center gap-2 cursor-pointer shadow-sm"
+                      >
+                        <span>📥</span> Download PDF
+                      </button>
+                    </>
                   )}
                   {isPending && booking.is_split && (
                     <button 
@@ -242,6 +262,66 @@ export default function BookingHistory({ apiBase, token, downloadTicketPDF, trig
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Digital QR Ticket Modal */}
+      {selectedTicket && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl text-white relative">
+            <button 
+              onClick={() => setSelectedTicket(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white font-black text-lg cursor-pointer"
+            >
+              ✖
+            </button>
+            <div className="text-center mb-6">
+              <span className="text-xs font-black uppercase text-emerald-400 tracking-widest bg-emerald-950/60 px-3 py-1 rounded-full border border-emerald-800/60">Official Venue Pass</span>
+              <h3 className="text-2xl font-black text-white mt-2 tracking-tight">Turf Entry QR Ticket</h3>
+              <p className="text-xs text-slate-400 font-semibold mt-1">Show this QR Code at the venue counter for instant check-in</p>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl flex flex-col items-center justify-center shadow-inner border border-slate-200">
+              <img src={selectedTicket.ticket.qr_code_data} alt="QR Ticket" className="w-48 h-48 rounded-lg shadow-md" />
+              <p className="text-xs font-black text-slate-900 font-mono mt-4 bg-slate-100 px-3 py-1 rounded border border-slate-300">
+                {selectedTicket.ticket.ticket_code}
+              </p>
+            </div>
+
+            <div className="mt-6 bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-semibold">Turf Venue:</span>
+                <span className="font-bold text-white">Turf #{selectedTicket.booking.slot?.turf_id || 1}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-semibold">Scheduled Slot:</span>
+                <span className="font-bold text-emerald-400 font-mono">{selectedTicket.booking.slot?.start_time} - {selectedTicket.booking.slot?.end_time}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-semibold">Total Paid:</span>
+                <span className="font-black text-white">₹{selectedTicket.booking.final_amount}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-semibold">Issued Date:</span>
+                <span className="font-semibold text-slate-300">{new Date(selectedTicket.ticket.issued_at).toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button 
+                onClick={() => window.print()} 
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-white text-xs font-black py-3 rounded-xl transition-all cursor-pointer border border-slate-700 shadow-md"
+              >
+                🖨️ Print Pass
+              </button>
+              <button 
+                onClick={() => setSelectedTicket(null)} 
+                className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black py-3 rounded-xl transition-all cursor-pointer shadow-md"
+              >
+                Done
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
