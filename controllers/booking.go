@@ -89,16 +89,15 @@ func CreateBooking(c *gin.Context) {
 			}
 		}
 
-		// Calculate final price using our existing dynamic pricing helper index logic
-		weatherMultiplier, _ := services.GetWeatherMultiplier()
-		
-		weekendMultiplier := 1.0
-		today := time.Now().Weekday()
-		if today == time.Saturday || today == time.Sunday {
-			weekendMultiplier = 1.3
+		// Calculate & Lock Dynamic Price using central Yield Engine
+		targetBookingDate := time.Now()
+		if slot.Date != "" {
+			if t, err := time.Parse("2006-01-02", slot.Date); err == nil {
+				targetBookingDate = t
+			}
 		}
-
-		finalPrice := CalculateDynamicPrice(slot.BasePrice, slot.StartTime, weatherMultiplier, weekendMultiplier)
+		priceBreakdown := services.EvaluateSlotPricing(slot, targetBookingDate)
+		finalPrice := priceBreakdown.FinalPrice
 
 		// 1. Slot hold status update pipeline
 		var expires time.Time

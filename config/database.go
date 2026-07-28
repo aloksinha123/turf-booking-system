@@ -35,6 +35,9 @@ func ConnectDatabase() {
 		&models.Waitlist{}, // Depends on User + Slot
 		&models.Match{},       // Depends on User + Slot
 		&models.MatchPlayer{}, // Depends on Match + User
+		&models.PricingRule{},
+		&models.Coupon{},
+		&models.PricingAuditLog{},
 	)
 	if err != nil {
 		log.Println("Migration Failed: ", err)

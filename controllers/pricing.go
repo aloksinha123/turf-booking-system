@@ -65,39 +65,39 @@ func GetAvailableSlots(c *gin.Context) {
 	}
 
 	// Fetch live smart modifiers
-	weatherMultiplier, isRaining := services.GetWeatherMultiplier()
+	_, isRaining := services.GetWeatherMultiplier()
 	
 	isWeekend := false
-	weekendMultiplier := 1.0
 	today := time.Now().Weekday()
 	if today == time.Saturday || today == time.Sunday {
 		isWeekend = true
-		weekendMultiplier = 1.3
 	}
 
-	// Active calculation loop to display pricing adjustments on responsive interface components
 	type SlotWithOriginal struct {
 		models.Slot
-		OriginalPrice float64 `json:"original_price"`
-		PricingTag    string  `json:"pricing_tag"`
+		OriginalPrice  float64                 `json:"original_price"`
+		PricingTag     string                  `json:"pricing_tag"`
+		PriceBreakdown services.PriceBreakdown `json:"price_breakdown"`
 	}
 
 	var responseSlots []SlotWithOriginal
-	for i := range slots {
-		originalPrice := slots[i].BasePrice
-		slots[i].BasePrice = CalculateDynamicPrice(slots[i].BasePrice, slots[i].StartTime, weatherMultiplier, weekendMultiplier)
-		// Determine a simple pricing tag for the slot card badge
-		hour, _ := time.Parse("15:04", slots[i].StartTime)
-		pricingTag := "NORMAL"
-		if hour.Hour() >= 17 && hour.Hour() <= 22 {
-			pricingTag = "SURGE"
-		} else if isRaining {
-			pricingTag = "FLASH_SALE"
+	targetDate := time.Now()
+	if date != "" {
+		if t, err := time.Parse("2006-01-02", date); err == nil {
+			targetDate = t
 		}
+	}
+
+	for i := range slots {
+		breakdown := services.EvaluateSlotPricing(slots[i], targetDate)
+		originalPrice := breakdown.BasePrice
+		slots[i].BasePrice = breakdown.FinalPrice
+
 		responseSlots = append(responseSlots, SlotWithOriginal{
-			Slot:          slots[i],
-			OriginalPrice: originalPrice,
-			PricingTag:    pricingTag,
+			Slot:           slots[i],
+			OriginalPrice:  originalPrice,
+			PricingTag:     breakdown.DemandIndicator,
+			PriceBreakdown: breakdown,
 		})
 	}
 
@@ -106,7 +106,7 @@ func GetAvailableSlots(c *gin.Context) {
 		"modifiers": gin.H{
 			"is_weekend":        isWeekend,
 			"is_raining":        isRaining,
-			"global_multiplier": GlobalPricingMultiplier,
+			"global_multiplier": services.AdminGlobalMultiplier,
 		},
 	})
 }
@@ -136,15 +136,25 @@ func ToggleSlotLock(c *gin.Context) {
 
 func UpdatePricingMultiplier(c *gin.Context) {
 	var req struct {
-		Multiplier float64 `json:"multiplier"`
+		Multiplier float64 `json:"multiplier" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid payload"})
 		return
 	}
 
+	if req.Multiplier <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Global multiplier cannot be zero or negative!"})
+		return
+	}
+	if req.Multiplier < 0.2 || req.Multiplier > 5.0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Global multiplier must be between 0.2x and 5.0x"})
+		return
+	}
+
 	GlobalPricingMultiplier = req.Multiplier
-	c.JSON(http.StatusOK, gin.H{"message": "Global multiplier updated", "multiplier": GlobalPricingMultiplier})
+	services.AdminGlobalMultiplier = req.Multiplier
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Global pricing multiplier updated to %.2fx", req.Multiplier), "multiplier": req.Multiplier})
 }
 
 func GetAllSlotsForAdmin(c *gin.Context) {

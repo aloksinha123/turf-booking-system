@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import PriceBreakdownModal from './PriceBreakdownModal';
 
 export default function LandingPage({
   slots,
@@ -25,6 +26,7 @@ export default function LandingPage({
   const [viewMode, setViewMode] = useState('map'); // 'grid' | 'map'
   const [hoveredTurf, setHoveredTurf] = useState(null);
   const [mainNavTab, setMainNavTab] = useState('booking'); // 'booking' | 'matchmaking' | 'history'
+  const [breakdownModalSlot, setBreakdownModalSlot] = useState(null);
 
   // Helper to check availability per turf
   // Turf A = ID 1 (Football), Turf B = ID 2 (Cricket), Turf C = ID 3 (Badminton)
@@ -541,7 +543,13 @@ export default function LandingPage({
                         )}
                       </div>
                       <button 
-                        onClick={() => initiateBooking(slot)}
+                        onClick={() => {
+                          if (isHeld) {
+                            joinWaitlist(slot.id);
+                          } else {
+                            setBreakdownModalSlot(slot);
+                          }
+                        }}
                         disabled={isProcessingId === slot.id && !isHeld}
                         className={`text-xs font-black uppercase tracking-wider px-5 py-3 rounded-xl transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2 cursor-pointer ${
                           isHeld
@@ -562,6 +570,19 @@ export default function LandingPage({
         </div>
       </section>
       </>
+      )}
+
+      {/* Price Breakdown Modal */}
+      {breakdownModalSlot && (
+        <PriceBreakdownModal
+          slot={breakdownModalSlot}
+          apiBase={API_BASE}
+          onClose={() => setBreakdownModalSlot(null)}
+          onProceedToCheckout={(selectedSlot, finalFare) => {
+            initiateBooking(selectedSlot);
+          }}
+          triggerAlert={triggerAlert}
+        />
       )}
     </div>
   );

@@ -66,6 +66,7 @@ func main() {
 	router.GET("/api/v1/matches", controllers.ListMatches)
 	router.GET("/api/v1/matches/:id", controllers.GetMatchDetails)
 	router.GET("/api/v1/matches/:id/players", controllers.GetMatchPlayers)
+	router.POST("/api/v1/coupons/apply", controllers.ApplyCoupon)
 
 	// WebSockets
 	router.GET("/ws", websockets.ServeWS)
@@ -101,6 +102,14 @@ func main() {
 		adminRoutes.POST("/slots/:id/release", controllers.ForceReleaseSlot)
 		adminRoutes.POST("/slots/:id/extend", controllers.ExtendSlotHold)
 		adminRoutes.POST("/seed_demo", controllers.SeedDemoAnalytics)
+
+		// Admin Dynamic Pricing Yield Engine Routes
+		adminRoutes.GET("/pricing-rules", controllers.AdminGetPricingRules)
+		adminRoutes.POST("/pricing-rules", controllers.AdminCreatePricingRule)
+		adminRoutes.POST("/pricing-rules/:id/toggle", controllers.AdminTogglePricingRule)
+		adminRoutes.GET("/coupons", controllers.AdminGetCoupons)
+		adminRoutes.POST("/coupons", controllers.AdminCreateCoupon)
+		adminRoutes.GET("/pricing/analytics", controllers.AdminGetPricingAnalytics)
 
 		// Admin Matchmaking Routes
 		adminRoutes.GET("/matches", controllers.AdminListMatches)

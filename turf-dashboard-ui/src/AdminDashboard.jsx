@@ -18,6 +18,23 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
     hourly_volume: []
   });
 
+  const [pricingRules, setPricingRules] = useState([]);
+  const [coupons, setCoupons] = useState([]);
+  const [yieldAnalytics, setYieldAnalytics] = useState(null);
+
+  // New Rule Form
+  const [ruleName, setRuleName] = useState('');
+  const [ruleType, setRuleType] = useState('holiday');
+  const [ruleMultiplier, setRuleMultiplier] = useState('1.25');
+  const [rulePriority, setRulePriority] = useState('20');
+  const [submittingRule, setSubmittingRule] = useState(false);
+
+  // New Coupon Form
+  const [couponCodeInput, setCouponCodeInput] = useState('');
+  const [couponValInput, setCouponValInput] = useState('20');
+  const [couponAllowSurge, setCouponAllowSurge] = useState(false);
+  const [submittingCoupon, setSubmittingCoupon] = useState(false);
+
   // Load all slots and analytics for Admin
   const loadAdminData = async () => {
     try {
@@ -57,8 +74,120 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
         const data = await resAnalytics.json();
         setAnalytics(data);
       }
+
+      // Fetch Pricing Rules
+      const resRules = await fetchApi(`${apiBase}/admin/pricing-rules`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resRules.ok) {
+        const rulesData = await resRules.json();
+        setPricingRules(rulesData || []);
+      }
+
+      // Fetch Coupons
+      const resCoupons = await fetchApi(`${apiBase}/admin/coupons`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resCoupons.ok) {
+        const couponData = await resCoupons.json();
+        setCoupons(couponData || []);
+      }
+
+      // Fetch Yield Analytics
+      const resYield = await fetchApi(`${apiBase}/admin/pricing/analytics`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resYield.ok) {
+        const yieldData = await resYield.json();
+        setYieldAnalytics(yieldData);
+      }
     } catch (err) {
       console.error("Admin fetch failed:", err);
+    }
+  };
+
+  const handleCreateRule = async (e) => {
+    e.preventDefault();
+    const multVal = parseFloat(ruleMultiplier);
+    if (isNaN(multVal) || multVal <= 0) {
+      return triggerAlert("Invalid multiplier! Must be greater than 0x (e.g. 1.25x)", true);
+    }
+
+    try {
+      setSubmittingRule(true);
+      const res = await fetchApi(`${apiBase}/admin/pricing-rules`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: ruleName,
+          rule_type: ruleType,
+          multiplier: multVal,
+          priority: parseInt(rulePriority) || 10,
+          is_active: true
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create rule');
+
+      triggerAlert(data.message, false);
+      setRuleName('');
+      loadAdminData();
+    } catch (err) {
+      triggerAlert(err.message, true);
+    } finally {
+      setSubmittingRule(false);
+    }
+  };
+
+  const handleToggleRule = async (ruleId) => {
+    try {
+      const res = await fetchApi(`${apiBase}/admin/pricing-rules/${ruleId}/toggle`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        triggerAlert(data.message, false);
+        loadAdminData();
+      }
+    } catch (err) {
+      triggerAlert('Failed to toggle rule', true);
+    }
+  };
+
+  const handleCreateCoupon = async (e) => {
+    e.preventDefault();
+    if (!couponCodeInput.trim()) return triggerAlert('Enter a coupon code', true);
+
+    try {
+      setSubmittingCoupon(true);
+      const res = await fetchApi(`${apiBase}/admin/coupons`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          code: couponCodeInput,
+          discount_type: 'percentage',
+          discount_value: parseFloat(couponValInput) || 20,
+          allow_with_surge: couponAllowSurge,
+          is_active: true
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create coupon');
+
+      triggerAlert('Coupon created successfully! 🎉', false);
+      setCouponCodeInput('');
+      loadAdminData();
+    } catch (err) {
+      triggerAlert(err.message, true);
+    } finally {
+      setSubmittingCoupon(false);
     }
   };
 
@@ -865,6 +994,199 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
             </div>
           </div>
         )}
+
+        {/* 🏷️ Airline/Hotel Yield Pricing Engine & Coupon Manager */}
+        <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Dynamic Pricing Rules Manager */}
+          <div className="bg-[#0e1422] border border-slate-800 rounded-3xl p-6 shadow-xl">
+            <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-lg font-black text-white uppercase tracking-tight flex items-center gap-2">
+                  <span>🏷️</span> Yield Pricing Rules Engine
+                </h3>
+                <p className="text-xs text-slate-400 font-medium mt-0.5">Hierarchy: Priority #100 > #50 > #10</p>
+              </div>
+              {yieldAnalytics && (
+                <div className="text-right">
+                  <span className="text-[9px] font-black uppercase text-slate-400 block">Dynamic Revenue Uplift</span>
+                  <span className="text-sm font-black text-emerald-400">+₹{yieldAnalytics.revenue_uplift?.toFixed(0)}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Create Rule Form */}
+            <form onSubmit={handleCreateRule} className="grid grid-cols-2 gap-3 mb-6 bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
+              <div className="col-span-2 sm:col-span-1">
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Rule Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Diwali Holiday Surge"
+                  value={ruleName}
+                  onChange={(e) => setRuleName(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Type</label>
+                <select
+                  value={ruleType}
+                  onChange={(e) => setRuleType(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="holiday">🎉 Holiday / Event</option>
+                  <option value="early_bird">🐦 Early Bird Discount</option>
+                  <option value="last_minute">⚡ Last Minute Discount</option>
+                  <option value="surge">🔥 Demand Surge</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Multiplier (e.g. 1.25x)</label>
+                <input
+                  type="number"
+                  step="0.05"
+                  min="0.2"
+                  max="5.0"
+                  value={ruleMultiplier}
+                  onChange={(e) => setRuleMultiplier(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Priority (#)</label>
+                <input
+                  type="number"
+                  value={rulePriority}
+                  onChange={(e) => setRulePriority(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="col-span-2">
+                <button
+                  type="submit"
+                  disabled={submittingRule}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase text-xs tracking-wider py-2.5 rounded-xl cursor-pointer shadow-md"
+                >
+                  {submittingRule ? 'Adding...' : '➕ Add Priority Pricing Rule'}
+                </button>
+              </div>
+            </form>
+
+            {/* Rules List */}
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+              {pricingRules.length === 0 ? (
+                <p className="text-xs text-slate-500 text-center py-4 font-semibold">No custom pricing rules. Built-in Yield Engine active.</p>
+              ) : (
+                pricingRules.map((rule) => (
+                  <div key={rule.id} className="flex justify-between items-center bg-slate-900 border border-slate-800 p-3 rounded-xl text-xs">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-white">{rule.name}</span>
+                        <span className="text-[9px] font-black bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded uppercase">
+                          Priority #{rule.priority}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-semibold">{rule.rule_type}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-black text-amber-400 text-sm">{rule.multiplier}x</span>
+                      <button
+                        onClick={() => handleToggleRule(rule.id)}
+                        className={`text-[10px] font-black uppercase px-3 py-1 rounded-lg cursor-pointer ${
+                          rule.is_active ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-500'
+                        }`}
+                      >
+                        {rule.is_active ? 'Active' : 'Off'}
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Promotional Coupons Manager */}
+          <div className="bg-[#0e1422] border border-slate-800 rounded-3xl p-6 shadow-xl">
+            <div className="mb-4 border-b border-slate-800 pb-3">
+              <h3 className="text-lg font-black text-white uppercase tracking-tight flex items-center gap-2">
+                <span>🎟️</span> Promotional Coupon Engine
+              </h3>
+              <p className="text-xs text-slate-400 font-medium mt-0.5">Coupons & Surge compatibility safeguards</p>
+            </div>
+
+            {/* Create Coupon Form */}
+            <form onSubmit={handleCreateCoupon} className="grid grid-cols-2 gap-3 mb-6 bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Coupon Code</label>
+                <input
+                  type="text"
+                  placeholder="e.g. TURF20"
+                  value={couponCodeInput}
+                  onChange={(e) => setCouponCodeInput(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white uppercase focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Discount (%)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="90"
+                  value={couponValInput}
+                  onChange={(e) => setCouponValInput(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="col-span-2 flex items-center justify-between bg-slate-850 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-xs font-bold text-slate-300">Allow Usage During Surge Pricing?</span>
+                <input
+                  type="checkbox"
+                  checked={couponAllowSurge}
+                  onChange={(e) => setCouponAllowSurge(e.target.checked)}
+                  className="w-4 h-4 text-emerald-500 accent-emerald-500 cursor-pointer"
+                />
+              </div>
+
+              <div className="col-span-2">
+                <button
+                  type="submit"
+                  disabled={submittingCoupon}
+                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black uppercase text-xs tracking-wider py-2.5 rounded-xl cursor-pointer shadow-md"
+                >
+                  {submittingCoupon ? 'Creating...' : '🎟️ Create Coupon Code'}
+                </button>
+              </div>
+            </form>
+
+            {/* Coupons List */}
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+              {coupons.length === 0 ? (
+                <p className="text-xs text-slate-500 text-center py-4 font-semibold">No active coupons created yet.</p>
+              ) : (
+                coupons.map((c) => (
+                  <div key={c.id} className="flex justify-between items-center bg-slate-900 border border-slate-800 p-3 rounded-xl text-xs">
+                    <div>
+                      <span className="font-black text-white uppercase">{c.code}</span>
+                      <span className="ml-2 text-[10px] font-bold text-emerald-400">-{c.discount_value}% OFF</span>
+                    </div>
+                    <span className="text-[10px] font-semibold text-slate-400">
+                      {c.allow_with_surge ? '✅ Surge Allowed' : '⛔ Surge Blocked'}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
 
         {/* System Telemetry & Stress Test Zone */}
         <StressDashboard apiBase={apiBase} token={token} onTestComplete={loadAdminData} />
