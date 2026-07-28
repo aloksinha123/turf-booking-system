@@ -1004,7 +1004,7 @@ export default function AdminDashboard({ apiBase, triggerAlert, token }) {
                 <h3 className="text-lg font-black text-white uppercase tracking-tight flex items-center gap-2">
                   <span>🏷️</span> Yield Pricing Rules Engine
                 </h3>
-                <p className="text-xs text-slate-400 font-medium mt-0.5">Hierarchy: Priority #100 > #50 > #10</p>
+                <p className="text-xs text-slate-400 font-medium mt-0.5">Hierarchy: Priority #100 &gt; #50 &gt; #10</p>
               </div>
               {yieldAnalytics && (
                 <div className="text-right">
